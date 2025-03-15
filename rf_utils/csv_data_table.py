@@ -264,7 +264,23 @@ class CSVDataTable(object):
             for idx_arr in range(len(self.data)):
                 data_line = delim_field.join([str(self.data[idx_arr][title]) for title in self.titles])
                 file.write(f"{data_line}\n")
-                
+
+    def remove_columns(self, column_names):
+        old_dtype = self.data.dtype
+        new_dtype = np.dtype([(name, old_dtype.fields[name][0]) for name in old_dtype.names if name not in column_names])
+
+        new_data = np.empty(self.data.shape, dtype=new_dtype)
+
+        for name in new_dtype.names:
+            new_data[name] = self.data[name]
+
+        self.data = new_data
+
+        for idx, name in list(enumerate(old_dtype.names))[::-1]:
+            if name in column_names:
+                self.titles.pop(idx)
+                self.units.pop(name)
+
     def __str__(self):
         """
         Return a string representation of the CSVDataTable object.
@@ -281,18 +297,18 @@ class CSVDataTable(object):
         # Create a preview of the data
         data_preview = "Data Preview (first 5 rows):\n"
         if self.data is not None:
-            num_rows = min(5, len(self.data))
-            for i in range(num_rows):
+            num_rows = range(0, len(self.data), int(max(1, len(self.data))/10))
+            for i in num_rows:
                 row_data = ", ".join(f"{self.data[i][title]}" for title in self.titles)
                 data_preview += f"  [{row_data}]\n"
         else:
             data_preview += "  No data available.\n"
 
         # Create a summary of the comments
-        comments_summary = "Comments:\n" + "\n".join(self.comments) if self.comments else "No comments."
+        comments_summary = "\nComments:\n" + "\n".join(self.comments) if self.comments else "No comments."
 
         # Create a summary of the attributes
-        attrs_summary = "Attributes:\n" + "\n".join(f"{k} = {v}" for k, v in self.attrs.items()) if self.attrs else "No attributes."
+        attrs_summary = "\nAttributes:\n" + "\n".join(f"{k} = {v}" for k, v in self.attrs.items()) if self.attrs else "No attributes."
 
         # Combine all parts into the final string representation
         return (f"CSVDataTable Summary:\n"

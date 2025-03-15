@@ -1,6 +1,12 @@
 #!/usr/bin/env python
 # coding: utf-8
 
+"""
+Project: RF_chain_modeling
+GitHub: https://github.com/dunaar/RF_chain_modeling
+Auteur: Pessel Arnaud
+"""
+
 # ====================================================================================================
 # RF Signal Simulation and Analysis Framework
 #
@@ -313,6 +319,7 @@ class Signals:
 
 class RF_Component(object):
     """Base class for RF components."""
+    ft = lambda self, x,k: np.tanh(x/k)*k
 
     def __init__(self):
         pass
@@ -545,10 +552,10 @@ class Simple_Amplifier(RF_Component):
         temp_kelvin = temp_kelvin if temp_kelvin else self.temp_kelvin
 
         signals.sig2d += self.nf * Signals.generate_noise_dbm(signals.shape, thermal_noise_power_dbm(temp_kelvin, signals.bw_hz))
-        signals.sig2d = ft(self.a1 * signals.sig2d, self.k_oip3) + self.a2 * ft(signals.sig2d, self.op1db * 2) ** 2
+        signals.sig2d = self.ft(self.a1 * signals.sig2d, self.k_oip3) + self.a2 * self.ft(signals.sig2d, self.op1db * 2) ** 2
 
         # OP1dB: 1dB compression point output power
-        signals.sig2d = ft(signals.sig2d, self.op1db * 6)
+        signals.sig2d = self.ft(signals.sig2d, self.op1db * 6)
 
 # ====================================================================================================
 # RF Modelised Component Class
@@ -661,10 +668,10 @@ class RF_modelised_component(RF_Component):
         # Apply distortion
         if not self.oip3 > 1e308:
             signals.sig2d /= self.a1
-            signals.sig2d = ft(self.a1 * signals.sig2d, self.k_oip3) + self.a2 * ft(signals.sig2d, self.op1db * 2) ** 2
+            signals.sig2d = self.ft(self.a1 * signals.sig2d, self.k_oip3) + self.a2 * self.ft(signals.sig2d, self.op1db * 2) ** 2
 
         if not self.op1db > 1e308:
-            signals.sig2d = ft(signals.sig2d, self.op1db * 6)
+            signals.sig2d = self.ft(signals.sig2d, self.op1db * 6)
 
 # ====================================================================================================
 # RF Cable Class

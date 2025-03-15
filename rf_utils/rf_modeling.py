@@ -334,12 +334,15 @@ class RF_Component(object):
             signals = copy.deepcopy(signals)
 
         self.process_signals(signals, temp_kelvin=temp_kelvin)
+        signals.sig2d = signals.sig2d - signals.sig2d.mean(1)[:, np.newaxis] # continuous signal is removed
         signals.spectrum_uptodate = False
 
         return signals if not inplace else None
 
     def assess_gain(self, fmin=400e6, fmax=19e9, step=100e6, temp_kelvin=temperature_default):
         """Assess the gain and phase versus frequency of the RF component."""
+        print("""\nAssess the gain and phase versus frequency of the RF component.""")
+        
         bin_width = step / 2
         n_windows = 128
 
@@ -392,10 +395,15 @@ class RF_Component(object):
         phass[phass < -pi] += 2 * pi
         phass[phass > pi] -= 2 * pi
 
+        #for var in ('freqs_for_test', 'gains', 'phass, n_fgs'):
+        #    print('%s: '%(var), eval(var))
+
         return freqs_for_test, gains, phass, n_fgs
 
     def assess_iipx(self, fc=9e9, df=400e6, temp_kelvin=temperature_default):
         """Assess the IIP2 and IIP3 (Input Intercept Point of order 2 and 3) of the RF component."""
+        print("""\nAssess the IIP2 and IIP3 (Input Intercept Point of order 2 and 3) of the RF component.""")
+        
         fmax = 2.5 * fc
         bin_width = df / 32
         n_windows = 8
@@ -479,6 +487,9 @@ class RF_Component(object):
         ax1.grid(True)
         plt.tight_layout()
 
+        for var in ('op1db_dbm', 'iip2_dbm', 'oip3_dbm'):
+            print('%s: '%(var), eval(var))
+        
         return op1db_dbm, iip2_dbm, oip3_dbm
 
 # ====================================================================================================

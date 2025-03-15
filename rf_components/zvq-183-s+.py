@@ -30,7 +30,7 @@ cpnt = RF_modelised_component(
                                freqs      = csv_data.data['freq'], 
                                gains_db   = csv_data.data['gain'],
                                nfs_db     = csv_data.data['nf'],
-                               phases_rad = csv_data.data['phase'] * CSVDataTable.D2R,
+                               phases_rad = csv_data.data['phase'],
                                nominal_gain_for_im_db = float(csv_data.attrs['nominal_gain(dB)']),
                                op1db_dbm  = float(csv_data.attrs['nominal_gain(dB)']),
                                oip3_dbm   = float(csv_data.attrs['oip3(dbm)']),
@@ -41,7 +41,8 @@ if __name__ == '__main__':
     from RF_chain_modeling.rf_utils.rf_modeling import plot_signal_spectrum
     
     ####
-    freqs, gains, phases, noise_figures = cpnt.assess_gain()
+    freqs, gains, phases, noise_figures = cpnt.assess_gain( fmin=max(0, csv_data.data['freq'][0] - 2e9), 
+                                                            fmax=csv_data.data['freq'][-1] + 2e9)
     plot_signal_spectrum(freqs, gains        , phases)
     plot_signal_spectrum(freqs, noise_figures, phases)
     

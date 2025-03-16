@@ -11,15 +11,14 @@ Auteur: Pessel Arnaud
 # Author: Pessel Arnaud
 # Date: 2025-03-15
 #
-# python -m RF_chain_modeling.rf_components.zvq-183-s+
+# python -m RF_chain_modeling.rf_components.zvq_183_s_plus
 # ====================================================================================================
 
 from RF_chain_modeling.rf_utils.csv_data_table import CSVDataTable
 from RF_chain_modeling.rf_utils.rf_modeling import RF_modelised_component
 
 
-
-csv_data = CSVDataTable('RF_chain_modeling/rf_components/zvq-183-s+.tsv', delim_field='\t', multi_df=False)
+csv_data = CSVDataTable('RF_chain_modeling/rf_components/zvq_183_s_plus.tsv', delim_field='\t', multi_df=False)
 
 if __name__ == '__main__':
     print(csv_data)
@@ -43,8 +42,8 @@ if __name__ == '__main__':
     ####
     freqs, gains, phases, noise_figures = cpnt.assess_gain( fmin=max(0, csv_data.data['freq'][0] - 2e9), 
                                                             fmax=csv_data.data['freq'][-1] + 2e9)
-    plot_signal_spectrum(freqs, gains        , phases)
-    plot_signal_spectrum(freqs, noise_figures, phases)
+    plot_signal_spectrum(freqs, gains, phases, ylabel_power="Gain (dB)", ylabel_phase="Phase (radians)")
+    plot_signal_spectrum(freqs, noise_figures, ylabel_power="NF (dB)")
     
     ####
     cpnt.assess_iipx()

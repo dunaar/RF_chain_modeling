@@ -25,15 +25,20 @@ Auteur: Pessel Arnaud
 # ====================================================================================================
 
 import copy
+from tqdm import tqdm
+import itertools
+
 import numpy as np
 from numpy import pi
+
 from scipy.signal import butter, sosfilt, freqz
 from scipy.interpolate import interp1d
+
 import matplotlib.pyplot as plt
 
 # Constants
 k_B = 1.38e-23  # Boltzmann constant in Joules per Kelvin
-temperature_default = 290  # Default temperature in Kelvin
+temperature_default = 298.15  # Default temperature in Kelvin: 298,15K = 25°C
 
 # ====================================================================================================
 # Utility Functions
@@ -153,8 +158,28 @@ def plot_temporal_signal(time, sigxd, tmax=None, tmin=None):
     ax1.grid(True)
     plt.tight_layout()
 
-def plot_signal_spectrum(freqs, spectrum_power, spectrum_phase):
-    """Plot the frequency and phase spectrum of a signal."""
+    
+def plot_signal_spectrum(freqs, spectrum_power, spectrum_phase=None,
+                         title_power="Spectre de puissance", title_phase="Spectre de phase",
+                         ylabel_power="Puissance (dBm)"    , ylabel_phase="Phase (radians)"):
+    """
+    Plot the frequency and phase spectrum of a signal with customizable title and y-axis labels.
+
+    Parameters:
+    -----------
+    freqs : array-like
+        Frequency values for the x-axis.
+    spectrum_power : array-like
+        Power spectrum values for the y-axis.
+    spectrum_phase : array-like, optional
+        Phase spectrum values for the y-axis. Default is None.
+    title : str, optional
+        Title of the plot. Default is "Spectre de Fréquence".
+    ylabel_power : str, optional
+        Label for the y-axis of the power spectrum plot. Default is "Puissance (dBm)".
+    ylabel_phase : str, optional
+        Label for the y-axis of the phase spectrum plot. Default is "Phase (radians)".
+    """
     freqs = np.array(freqs)
     idx_max = np.argmax(freqs) + 1
 
@@ -172,27 +197,35 @@ def plot_signal_spectrum(freqs, spectrum_power, spectrum_phase):
         unit = 'Hz'
 
     fig = plt.figure(figsize=(12, 6))
-    ax1, ax2 = fig.subplots(2, 1, sharex=True)
+
+    if spectrum_phase is not None:
+        ax1, ax2 = fig.subplots(2, 1, sharex=True)
+    else:
+        ax1 = fig.subplots(1, 1)
+        ax2 = None
 
     if len(spectrum_power.shape) == 1:
         ax1.plot(freqs[:idx_max], spectrum_power[:idx_max])
-        ax2.plot(freqs[:idx_max], spectrum_phase[:idx_max])
+        if spectrum_phase is not None:
+            ax2.plot(freqs[:idx_max], spectrum_phase[:idx_max])
     elif len(spectrum_power.shape) == 2:
         for idx in range(spectrum_power.shape[0]):
             ax1.plot(freqs[:idx_max], spectrum_power[idx][:idx_max])
-            ax2.plot(freqs[:idx_max], spectrum_phase[idx][:idx_max])
+            if spectrum_phase is not None:
+                ax2.plot(freqs[:idx_max], spectrum_phase[idx][:idx_max])
 
     ax1.set_ylim(spectrum_power.min() - 1., spectrum_power.max() + 1.)
-    ax1.set_xlabel(f'Frequency ({unit})')
-    ax1.set_ylabel('Power (dBm)')
-    ax1.set_title('Frequency Spectrum in dBm')
+    ax1.set_xlabel(f'Fréquence ({unit})')
+    ax1.set_ylabel(ylabel_power)
+    ax1.set_title(title_power)
     ax1.grid(True)
 
-    ax2.set_ylim(-pi, pi)
-    ax2.set_xlabel(f'Frequency ({unit}Hz)')
-    ax2.set_ylabel('Phase (radians)')
-    ax2.set_title('Phase Spectrum')
-    ax2.grid(True)
+    if spectrum_phase is not None:
+        ax2.set_ylim(-pi, pi)
+        ax2.set_xlabel(f'Fréquence ({unit}Hz)')
+        ax2.set_ylabel(ylabel_phase)
+        ax2.set_title(title_phase)
+        ax2.grid(True)
 
     plt.tight_layout()
 
@@ -333,8 +366,11 @@ class RF_Component(object):
         if not inplace:
             signals = copy.deepcopy(signals)
 
+        means = (1.-1e-3)*signals.sig2d.mean(1)
+        signals.sig2d = signals.sig2d - means[:, np.newaxis] # DC block: continuous signal is removed
+        
         self.process_signals(signals, temp_kelvin=temp_kelvin)
-        signals.sig2d = signals.sig2d - signals.sig2d.mean(1)[:, np.newaxis] # continuous signal is removed
+
         signals.spectrum_uptodate = False
 
         return signals if not inplace else None
@@ -356,7 +392,7 @@ class RF_Component(object):
         phass = np.zeros_like(freqs_for_test)
         n_fgs = np.zeros_like(freqs_for_test)
 
-        for idx_frq, freq in enumerate(freqs_for_test):
+        for idx_frq, freq in tqdm(enumerate(freqs_for_test), total=len(freqs_for_test), desc="Assessing Gain"):
             # Compute gains and phases
             clear_signal = Signals(fmax, bin_width, n_windows=1, imped_ohms=50, temp_kelvin=temp_kelvin)
             clear_signal.add_tone(freq, -50, 0)
@@ -416,11 +452,9 @@ class RF_Component(object):
 
         input_power, outpt_power, im2___power, im3___power = [], [], [], []
 
-        op1db_dbm, iip2_dbm, oip3_dbm = None, None, None
+        n_ip, gain_db, op1db_dbm, iip2_dbm, iip3_dbm = 0, None, None, None, None
 
-        power_dbm = -50
-        to_continue = True
-        while to_continue:
+        for power_dbm in tqdm(range(-50, 50+1), desc="Assessing Gain"):
             # Initialize bitone signals
             bitone_signals = Signals(fmax, bin_width, n_windows=n_windows, imped_ohms=50, temp_kelvin=temp_kelvin)
             bitone_signals.add_tone(f1, power_dbm, 0)
@@ -454,24 +488,37 @@ class RF_Component(object):
                 delta_im2___power = im2___power[-1] - im2___power[-2]
                 delta_im3___power = im3___power[-1] - im3___power[-2]
 
-                if (np.abs(delta_im3___power / 3 - delta_input_power) / delta_input_power < 0.1 and
-                        np.abs(delta_im2___power / 2 - delta_input_power) / delta_input_power < 0.1 and
-                        np.abs(delta_outpt_power / 1 - delta_input_power) / delta_input_power < 0.1):
-                    iip2_dbm = input_power[-1] + (outpt_power[-1] - im2___power[-1])
-                    oip3_dbm = outpt_power[-1] + (outpt_power[-1] - im3___power[-1]) / 2
+                if  (np.abs(delta_im3___power / 3 - delta_input_power) / delta_input_power < 0.07 and
+                     np.abs(delta_im2___power / 2 - delta_input_power) / delta_input_power < 0.07 and
+                     np.abs(delta_outpt_power / 1 - delta_input_power) / delta_input_power < 0.07):
+                    gain_db  = outpt_power[-1] - input_power[-1]                         + (gain_db  if n_ip>0 else 0.)
+                    iip2_dbm = input_power[-1] + (outpt_power[-1] - im2___power[-1])     + (iip2_dbm if n_ip>0 else 0.)
+                    iip3_dbm = input_power[-1] + (outpt_power[-1] - im3___power[-1]) / 2 + (iip3_dbm if n_ip>0 else 0.)
+                    n_ip += 1
 
-                if oip3_dbm is not None and delta_outpt_power < delta_input_power - 1:
-                    op1db_dbm = (outpt_power[-1] + outpt_power[-2]) / 2
+                if op1db_dbm is None and gain_db is not None and (input_power[-1] + gain_db/n_ip - outpt_power[-1]) > 1:
+                    ip1db_dbm = np.interp(1.,
+                                          [input_power[-2]+gain_db/n_ip-outpt_power[-2], input_power[-1]+gain_db/n_ip-outpt_power[-1]],
+                                          [input_power[-2]                             , input_power[-1]                             ],
+                                          )
 
-            if power_dbm > 50:
-                to_continue = False
-            else:
-                power_dbm += 2
+                    op1db_dbm = np.interp(ip1db_dbm,
+                                          [input_power[-2], input_power[-1]],
+                                          [outpt_power[-2], outpt_power[-1]],
+                                          )
 
-        if iip2_dbm is None:
+        if iip2_dbm is not None:
+            gain_db  /= n_ip
+            iip2_dbm /= n_ip
+            iip3_dbm /= n_ip
+        else:
             print("Error: Unable to characterize IIPx finely.")
+            gain_db  = outpt_power[-1] - input_power[-1]
             iip2_dbm = input_power[-1] + (outpt_power[-1] - im2___power[-1])
-            oip3_dbm = (outpt_power[-1] + outpt_power[-1] - im3___power[-1]) / 2
+            iip3_dbm = input_power[-1] + (outpt_power[-1] - im3___power[-1]) / 2
+        
+        oip2_dbm  = iip2_dbm + gain_db
+        oip3_dbm  = iip3_dbm + gain_db  
 
         if op1db_dbm is None:
             print("Error: Unable to characterize OP1dB finely.")
@@ -480,24 +527,34 @@ class RF_Component(object):
         fig = plt.figure(figsize=(12, 6))
         ax1 = fig.subplots(1, 1)
         ax1.axis('equal')
+        
+        ax1.plot( ip1db_dbm, op1db_dbm, 'o' )
+        ax1.plot( iip2_dbm , oip2_dbm , 'o' )
+        ax1.plot( iip3_dbm , oip3_dbm , 'o' )
+        
+        ax1.plot( [input_power[0], input_power[-1]], [input_power[0]+gain_db, input_power[-1]+gain_db], ':' )
+        ax1.plot( [input_power[0], input_power[-1]], [3*(input_power[0]+gain_db) - 2*oip3_dbm, 3*(input_power[-1]+gain_db) - 2*oip3_dbm], ':' )
+        ax1.plot( [input_power[0], input_power[-1]], [2*(input_power[0]+gain_db) - 1*oip2_dbm, 2*(input_power[-1]+gain_db) - 1*oip2_dbm], ':' )
+        
         for pwrs in (outpt_power, im2___power, im3___power):
             ax1.plot(input_power, pwrs)
         ax1.set_xlabel('Input power (dBm)')
         ax1.set_ylabel('Output powers (dBm)')
+        ax1.set_ylim(-100, 75)
         ax1.grid(True)
         plt.tight_layout()
 
-        for var in ('op1db_dbm', 'iip2_dbm', 'oip3_dbm'):
+        for var in ('gain_db', 'op1db_dbm', 'iip2_dbm', 'oip3_dbm'):
             print('%s: '%(var), eval(var))
         
-        return op1db_dbm, iip2_dbm, oip3_dbm
+        return gain_db, op1db_dbm, iip2_dbm, oip3_dbm
 
 # ====================================================================================================
 # RF Channel Class
 # ====================================================================================================
 
-class RF_channel(RF_Component):
-    """Class representing an RF channel composed of multiple RF components."""
+class RF_chain(RF_Component):
+    """Class representing an RF chain composed of multiple RF components."""
 
     def __init__(self, rf_components=[]):
         self.rf_components = list(rf_components)
@@ -556,8 +613,9 @@ class Simple_Amplifier(RF_Component):
 
         self.a1 = self.gain
         self.a2 = 0.5 * self.a1 / self.iip2
-        self.k_oip3 = 0.24 * 10 ** (self.oip3_dbm / 20)
-
+        self.k_oip3 = 0.27 * 10 ** (self.oip3_dbm / 20)
+    
+    ft = lambda self, x,k: np.tanh(x/k)*k
     def process_signals(self, signals, temp_kelvin=None):
         """Process signals by applying gain, adding noise, and introducing non-linearities."""
         temp_kelvin = temp_kelvin if temp_kelvin else self.temp_kelvin
@@ -682,7 +740,7 @@ class RF_modelised_component(RF_Component):
             signals.sig2d = self.ft(self.a1 * signals.sig2d, self.k_oip3) + self.a2 * self.ft(signals.sig2d, self.op1db * 2) ** 2
 
         if not self.op1db > 1e308:
-            signals.sig2d = self.ft(signals.sig2d, self.op1db * 6)
+            signals.sig2d = self.ft(signals.sig2d, self.op1db * 11.5)
 
 # ====================================================================================================
 # RF Cable Class
@@ -747,17 +805,17 @@ class HighPassFilter(RF_modelised_component):
 # Antenna Component Class
 # ====================================================================================================
 
-class Antenna_component(RF_Component):
+class Antenna_Component(RF_Component):
     """Class representing an antenna with specified gain and phase characteristics."""
 
     def __init__(self, freqs, gains_db, phases_rad=None, temp_kelvin=temperature_default):
         """Initialize the antenna with specified characteristics."""
         self.temp_kelvin = temp_kelvin
 
-        self.freqs = np.array(freqs)
+        self.freqs    = np.array(freqs)
         self.gains_db = np.array(gains_db)
-        self.gains = gain_db_to_gain(self.gains_db)
-
+        self.gains    = gain_db_to_gain(self.gains_db)
+        
         if phases_rad is not None:
             self.phases_rad = np.array(phases_rad)
             self.gains = self.gains * np.exp(1j * self.phases_rad)
@@ -767,20 +825,20 @@ class Antenna_component(RF_Component):
         self.freqs_inf = -self.freqs_sup[::-1]
 
         self.gains_sup_db = -5. * np.arange(1, 11)
-        self.gains_sup = gain_db_to_gain(self.gains_sup_db)
-        self.gains_inf = self.gains_sup[::-1]
+        self.gains_sup    = gain_db_to_gain(self.gains_sup_db)
+        self.gains_inf    = self.gains_sup[::-1]
 
         # Extend the frequency domain with losses and noise figures
-        self.freqs = np.concat((self.freqs_inf + freqs[0], freqs, self.freqs_sup + freqs[-1]))
+        self.freqs = np.concat((self.freqs_inf + self.freqs[0], self.freqs, self.freqs_sup + self.freqs[-1]))
 
-        self.gains_inf = self.gains_inf * np.exp(1j * np.linspace(-np.angle(gains[0]), 0, num=len(self.gains_inf), endpoint=False))
-        self.gains_sup = self.gains_sup * np.exp(1j * np.linspace(-np.angle(gains[-1]), 0, num=len(self.gains_sup), endpoint=False)[::-1])
+        self.gains_inf = self.gains_inf * np.exp(1j * np.linspace(-np.angle(self.gains[ 0]), 0, num=len(self.gains_inf), endpoint=False))
+        self.gains_sup = self.gains_sup * np.exp(1j * np.linspace(-np.angle(self.gains[-1]), 0, num=len(self.gains_sup), endpoint=False)[::-1])
 
         self.gains = np.concat((self.gains_inf * self.gains[0], self.gains, self.gains_sup * self.gains[-1]))
 
         # Extend to the negative frequencies
-        self.gains = np.concat((np.conjugate(gains[freqs > 0][::-1]), gains[freqs >= 0]))
-        self.freqs = np.concat((-freqs[freqs > 0][::-1], freqs[freqs >= 0]))
+        self.gains = np.concat((np.conjugate(self.gains[self.freqs > 0][::-1]), self.gains[self.freqs >= 0]))
+        self.freqs = np.concat((-self.freqs[self.freqs > 0][::-1], self.freqs[self.freqs >= 0]))
 
     def process_signals(self, signals, temp_kelvin=None):
         """Process signals by applying antenna gains."""

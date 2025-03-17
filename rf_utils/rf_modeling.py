@@ -26,7 +26,6 @@ Auteur: Pessel Arnaud
 
 import copy
 from tqdm import tqdm
-import itertools
 
 import numpy as np
 from numpy import pi
@@ -707,18 +706,18 @@ class RF_modelised_component(RF_Component):
         freqs, gains, nfs = self.get_gains_nfs(signals, temp_kelvin)
 
         # Extend the frequency domain with losses and noise figures
-        freqs = np.concat((self.freqs_inf + freqs[0], freqs, self.freqs_sup + freqs[-1]))
+        freqs = np.concatenate((self.freqs_inf + freqs[0], freqs, self.freqs_sup + freqs[-1]))
 
         gains_inf = self.gains_inf * np.exp(1j * np.linspace(-np.angle(gains[0]), 0, num=len(self.gains_inf), endpoint=False))
         gains_sup = self.gains_sup * np.exp(1j * np.linspace(-np.angle(gains[-1]), 0, num=len(self.gains_sup), endpoint=False)[::-1])
 
-        gains = np.concat((gains_inf * gains[0], gains, gains_sup * gains[-1]))
-        nfs = np.concat((mul_nfs(self.nfs_inf, nfs[0]), nfs, mul_nfs(self.nfs_sup, nfs[-1])))
+        gains = np.concatenate((gains_inf * gains[0], gains, gains_sup * gains[-1]))
+        nfs = np.concatenate((mul_nfs(self.nfs_inf, nfs[0]), nfs, mul_nfs(self.nfs_sup, nfs[-1])))
 
         # Extend to the negative frequencies
-        gains = np.concat((np.conjugate(gains[freqs > 0][::-1]), gains[freqs >= 0]))
-        nfs = np.concat((nfs[freqs > 0][::-1], nfs[freqs >= 0]))
-        freqs = np.concat((-freqs[freqs > 0][::-1], freqs[freqs >= 0]))
+        gains = np.concatenate((np.conjugate(gains[freqs > 0][::-1]), gains[freqs >= 0]))
+        nfs = np.concatenate((nfs[freqs > 0][::-1], nfs[freqs >= 0]))
+        freqs = np.concatenate((-freqs[freqs > 0][::-1], freqs[freqs >= 0]))
 
         interp_gains = interp1d(freqs, gains, kind='linear', bounds_error=False, fill_value=(gains[0], gains[-1]))
         interp_nfs = interp1d(freqs, nfs, kind='linear', bounds_error=False, fill_value=(nfs[0], nfs[-1]))
@@ -829,16 +828,16 @@ class Antenna_Component(RF_Component):
         self.gains_inf    = self.gains_sup[::-1]
 
         # Extend the frequency domain with losses and noise figures
-        self.freqs = np.concat((self.freqs_inf + self.freqs[0], self.freqs, self.freqs_sup + self.freqs[-1]))
+        self.freqs = np.concatenate((self.freqs_inf + self.freqs[0], self.freqs, self.freqs_sup + self.freqs[-1]))
 
         self.gains_inf = self.gains_inf * np.exp(1j * np.linspace(-np.angle(self.gains[ 0]), 0, num=len(self.gains_inf), endpoint=False))
         self.gains_sup = self.gains_sup * np.exp(1j * np.linspace(-np.angle(self.gains[-1]), 0, num=len(self.gains_sup), endpoint=False)[::-1])
 
-        self.gains = np.concat((self.gains_inf * self.gains[0], self.gains, self.gains_sup * self.gains[-1]))
+        self.gains = np.concatenate((self.gains_inf * self.gains[0], self.gains, self.gains_sup * self.gains[-1]))
 
         # Extend to the negative frequencies
-        self.gains = np.concat((np.conjugate(self.gains[self.freqs > 0][::-1]), self.gains[self.freqs >= 0]))
-        self.freqs = np.concat((-self.freqs[self.freqs > 0][::-1], self.freqs[self.freqs >= 0]))
+        self.gains = np.concatenate((np.conjugate(self.gains[self.freqs > 0][::-1]), self.gains[self.freqs >= 0]))
+        self.freqs = np.concatenate((-self.freqs[self.freqs > 0][::-1], self.freqs[self.freqs >= 0]))
 
     def process_signals(self, signals, temp_kelvin=None):
         """Process signals by applying antenna gains."""

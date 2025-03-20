@@ -437,113 +437,163 @@ class RF_Component(object):
         return freqs_for_test, gains, phass, n_fgs
 
     def assess_iipx(self, fc=9e9, df=400e6, temp_kelvin=temperature_default):
-        """Assess the IIP2 and IIP3 (Input Intercept Point of order 2 and 3) of the RF component."""
-        print("""\nAssess the IIP2 and IIP3 (Input Intercept Point of order 2 and 3) of the RF component.""")
+        """Assess the IP2 and IP3 (Intercept Point of order 2 and 3) of the RF component."""
+        print("""\nAssess the IP2 and IP3 (Intercept Point of order 2 and 3) of the RF component.""")
         
+        #--------------------------------------------------------
         fmax = 2.5 * fc
         bin_width = df / 32
         n_windows = 8
+        #--------------------------------------------------------
 
+        #--------------------------------------------------------
+        input_pwr_m, outpt_pwr_m = [], []
+        input_pwr_d, outpt_pwr_d, im2___power, im3___power = [], [], [], []
+    
+        gains_db, iip2s_dbm, iip3s_dbm = [], [], []
+        ip1db_dbm, op1db_dbm = None, None
+        #--------------------------------------------------------
+
+        #--------------------------------------------------------
         f1 = fc - df
         f2 = fc + df
         f1pf2 = f1 + f2
         df1mf2 = 2 * f1 - f2
         df2mf1 = 2 * f2 - f1
+        
+        # Indexes of frequencies in spectrum
+        signals = Signals(fmax, bin_width, n_windows=n_windows, imped_ohms=50, temp_kelvin=temp_kelvin)
 
-        input_power, outpt_power, im2___power, im3___power = [], [], [], []
+        arg_frq_fc = signals.get_arg_freq(fc)
+        arg_frq_f1 = signals.get_arg_freq(f1)
+        arg_frq_f2 = signals.get_arg_freq(f2)
+        arg_frq_f1pf2 = signals.get_arg_freq(f1pf2)
+        arg_frq_df1mf2 = signals.get_arg_freq(df1mf2)
+        arg_frq_df2mf1 = signals.get_arg_freq(df2mf1)
+        #--------------------------------------------------------
 
-        n_ip, gain_db, op1db_dbm, iip2_dbm, iip3_dbm = 0, None, None, None, None
-
+        #--------------------------------------------------------
         for power_dbm in tqdm(range(-50, 50+1), desc="Assessing Gain"):
+            # Initialize monotone signals
+            signals = Signals(fmax, bin_width, n_windows=n_windows, imped_ohms=50, temp_kelvin=temp_kelvin)
+            signals.add_tone(fc, power_dbm, 0)
+            
+            input_pwr_m.append( np.mean(signals['spects_power'][:, arg_frq_fc]) )
+
+            # Processing signal
+            self.process(signals, temp_kelvin=temp_kelvin)
+    
+            # Append values in tables
+            outpt_pwr_m.append( np.mean(signals['spects_power'][:, arg_frq_fc]) )
+            
+            if len(input_pwr_m) >= 2:
+                delta_input_power = input_pwr_m[-1] - input_pwr_m[-2]
+                delta_outpt_power = outpt_pwr_m[-1] - outpt_pwr_m[-2]
+                
+                if op1db_dbm is None:
+                    if np.abs(delta_outpt_power / 1 - delta_input_power) / delta_input_power < 0.02:
+                        gains_db.append( outpt_pwr_m[-1] - input_pwr_m[-1] )
+                        gain_db = np.array(gains_db).mean()
+        
+                    if gains_db and (input_pwr_m[-1] + gain_db - outpt_pwr_m[-1]) > 1:
+                        ip1db_dbm = np.interp(1.,
+                                              [input_pwr_m[-2]+gain_db-outpt_pwr_m[-2], input_pwr_m[-1]+gain_db-outpt_pwr_m[-1]],
+                                              [input_pwr_m[-2]                        , input_pwr_m[-1]                        ],
+                                              )
+        
+                        op1db_dbm = np.interp(ip1db_dbm,
+                                              [input_pwr_m[-2], input_pwr_m[-1]],
+                                              [outpt_pwr_m[-2], outpt_pwr_m[-1]],
+                                              )
+            
+        if not gains_db:
+            print("Error: Unable to characterize Gain finely.")
+            gain_db  = outpt_pwr_m[len(outpt_pwr_m)//2] - input_pwr_m[len(outpt_pwr_m)//2]
+    
+        if op1db_dbm is None:
+            print("Error: Unable to characterize P1dB finely.")
+            ip1db_dbm = input_pwr_m[-1]
+            op1db_dbm = outpt_pwr_m[-1]
+        #--------------------------------------------------------
+    
+        #--------------------------------------------------------
+        for power_dbm in tqdm(range(-50, 50+1), desc="Assessing IP2, IP3"):
             # Initialize bitone signals
-            bitone_signals = Signals(fmax, bin_width, n_windows=n_windows, imped_ohms=50, temp_kelvin=temp_kelvin)
-            bitone_signals.add_tone(f1, power_dbm, 0)
-            bitone_signals.add_tone(f2, power_dbm, 0)
+            signals = Signals(fmax, bin_width, n_windows=n_windows, imped_ohms=50, temp_kelvin=temp_kelvin)
+            signals.add_tone(f1, power_dbm, 0)
+            signals.add_tone(f2, power_dbm, 0)
 
-            # Indexes of frequencies in spectrum
-            arg_frq_f1 = bitone_signals.get_arg_freq(f1)
-            arg_frq_f2 = bitone_signals.get_arg_freq(f2)
-            arg_frq_f1pf2 = bitone_signals.get_arg_freq(f1pf2)
-            arg_frq_df1mf2 = bitone_signals.get_arg_freq(df1mf2)
-            arg_frq_df2mf1 = bitone_signals.get_arg_freq(df2mf1)
+            input_pwr_d.append(np.mean((signals['spects_power'][:, arg_frq_f1] +
+                                        signals['spects_power'][:, arg_frq_f2]) / 2))
 
-            input_power.append(np.mean((bitone_signals['spects_power'][:, arg_frq_f1] +
-                                        bitone_signals['spects_power'][:, arg_frq_f2]) / 2))
-
-            # Process the insertion losses
-            self.process(bitone_signals, temp_kelvin=temp_kelvin)
+            # Processing signal
+            self.process(signals, temp_kelvin=temp_kelvin)
 
             # Append values in tables
-            outpt_power.append(np.mean((bitone_signals['spects_power'][:, arg_frq_f1] +
-                                        bitone_signals['spects_power'][:, arg_frq_f2]) / 2))
+            outpt_pwr_d.append(np.mean((signals['spects_power'][:, arg_frq_f1] +
+                                        signals['spects_power'][:, arg_frq_f2]) / 2))
 
-            im2___power.append(np.mean(bitone_signals['spects_power'][:, arg_frq_f1pf2]))
+            im2___power.append(np.mean(signals['spects_power'][:, arg_frq_f1pf2]))
 
-            im3___power.append(np.mean((bitone_signals['spects_power'][:, arg_frq_df1mf2] +
-                                        bitone_signals['spects_power'][:, arg_frq_df2mf1]) / 2))
+            im3___power.append(np.mean((signals['spects_power'][:, arg_frq_df1mf2] +
+                                        signals['spects_power'][:, arg_frq_df2mf1]) / 2))
 
-            if len(input_power) >= 2:
-                delta_input_power = input_power[-1] - input_power[-2]
-                delta_outpt_power = outpt_power[-1] - outpt_power[-2]
+            if len(input_pwr_d) >= 2:
+                delta_input_pwr_d = input_pwr_d[-1] - input_pwr_d[-2]
                 delta_im2___power = im2___power[-1] - im2___power[-2]
                 delta_im3___power = im3___power[-1] - im3___power[-2]
-
-                if  (np.abs(delta_im3___power / 3 - delta_input_power) / delta_input_power < 0.07 and
-                     np.abs(delta_im2___power / 2 - delta_input_power) / delta_input_power < 0.07 and
-                     np.abs(delta_outpt_power / 1 - delta_input_power) / delta_input_power < 0.07):
-                    gain_db  = outpt_power[-1] - input_power[-1]                         + (gain_db  if n_ip>0 else 0.)
-                    iip2_dbm = input_power[-1] + (outpt_power[-1] - im2___power[-1])     + (iip2_dbm if n_ip>0 else 0.)
-                    iip3_dbm = input_power[-1] + (outpt_power[-1] - im3___power[-1]) / 2 + (iip3_dbm if n_ip>0 else 0.)
-                    n_ip += 1
-
-                if op1db_dbm is None and gain_db is not None and (input_power[-1] + gain_db/n_ip - outpt_power[-1]) > 1:
-                    ip1db_dbm = np.interp(1.,
-                                          [input_power[-2]+gain_db/n_ip-outpt_power[-2], input_power[-1]+gain_db/n_ip-outpt_power[-1]],
-                                          [input_power[-2]                             , input_power[-1]                             ],
-                                          )
-
-                    op1db_dbm = np.interp(ip1db_dbm,
-                                          [input_power[-2], input_power[-1]],
-                                          [outpt_power[-2], outpt_power[-1]],
-                                          )
-
-        if iip2_dbm is not None:
-            gain_db  /= n_ip
-            iip2_dbm /= n_ip
-            iip3_dbm /= n_ip
-        else:
-            print("Error: Unable to characterize IIPx finely.")
-            gain_db  = outpt_power[-1] - input_power[-1]
-            iip2_dbm = input_power[-1] + (outpt_power[-1] - im2___power[-1])
-            iip3_dbm = input_power[-1] + (outpt_power[-1] - im3___power[-1]) / 2
+                
+                if outpt_pwr_d[-1] < op1db_dbm:
+                    if np.abs(delta_im2___power / 2 - delta_input_power) / delta_input_power < 0.02:
+                        iip2s_dbm.append( input_pwr_d[-1] + (outpt_pwr_d[-1] - im2___power[-1]) )
         
+                    if np.abs(delta_im3___power / 3 - delta_input_power) / delta_input_power < 0.02:
+                        iip3s_dbm.append( input_pwr_d[-1] + (outpt_pwr_d[-1] - im3___power[-1]) / 2 )
+
+        idx_mid = len(outpt_pwr_d)//2
+        if iip2s_dbm:
+            iip2_dbm = np.array(iip2s_dbm).mean()
+        else:
+            print("Error: Unable to characterize IP2 finely.")
+            iip2_dbm = input_pwr_d[idx_mid] + (outpt_pwr_d[idx_mid] - im2___power[idx_mid])
         oip2_dbm  = iip2_dbm + gain_db
-        oip3_dbm  = iip3_dbm + gain_db  
+        
+        if iip3s_dbm:
+            iip3_dbm = np.array(iip3s_dbm).mean()
+        else:
+            print("Error: Unable to characterize IP3 finely.")
+            if op1db_dbm:
+                iip3_dbm  = ip1db_dbm + 10.
+            else:
+                iip3_dbm = input_pwr_d[idx_mid] + (outpt_pwr_d[idx_mid] - im3___power[idx_mid]) / 2
+        oip3_dbm  = iip3_dbm + gain_db
+        #--------------------------------------------------------
 
-        if op1db_dbm is None:
-            print("Error: Unable to characterize OP1dB finely.")
-            op1db_dbm = (outpt_power[-1] + outpt_power[-2]) / 2
-
+        #--------------------------------------------------------
         fig = plt.figure(figsize=(12, 6))
         ax1 = fig.subplots(1, 1)
         ax1.axis('equal')
         
-        ax1.plot( ip1db_dbm, op1db_dbm, 'o' )
-        ax1.plot( iip2_dbm , oip2_dbm , 'o' )
-        ax1.plot( iip3_dbm , oip3_dbm , 'o' )
+        ax1.plot( ip1db_dbm, op1db_dbm, 'go' )
+        ax1.plot( iip2_dbm , oip2_dbm , 'mo' )
+        ax1.plot( iip3_dbm , oip3_dbm , 'ro' )
         
-        ax1.plot( [input_power[0], input_power[-1]], [input_power[0]+gain_db, input_power[-1]+gain_db], ':' )
-        ax1.plot( [input_power[0], input_power[-1]], [3*(input_power[0]+gain_db) - 2*oip3_dbm, 3*(input_power[-1]+gain_db) - 2*oip3_dbm], ':' )
-        ax1.plot( [input_power[0], input_power[-1]], [2*(input_power[0]+gain_db) - 1*oip2_dbm, 2*(input_power[-1]+gain_db) - 1*oip2_dbm], ':' )
+        ax1.plot( [input_pwr_m[0], input_pwr_m[-1]], [   input_pwr_m[0]+gain_db              , input_pwr_m[-1]+gain_db                 ], 'g:' )
+        ax1.plot( [input_pwr_d[0], input_pwr_d[-1]], [3*(input_pwr_d[0]+gain_db) - 2*oip3_dbm, 3*(input_pwr_d[-1]+gain_db) - 2*oip3_dbm], 'r:' )
+        ax1.plot( [input_pwr_d[0], input_pwr_d[-1]], [2*(input_pwr_d[0]+gain_db) - 1*oip2_dbm, 2*(input_pwr_d[-1]+gain_db) - 1*oip2_dbm], 'm:' )
         
-        for pwrs in (outpt_power, im2___power, im3___power):
-            ax1.plot(input_power, pwrs)
+        for in_pwrs, out_pwrs, line in ((input_pwr_m, outpt_pwr_m, 'g'), (input_pwr_d, im2___power, 'm'), (input_pwr_d, im3___power, 'r')):
+            ax1.plot(in_pwrs, out_pwrs, line)
+        
         ax1.set_xlabel('Input power (dBm)')
         ax1.set_ylabel('Output powers (dBm)')
-        ax1.set_ylim(-100, 75)
+        ax1.set_xticks(np.arange(-100, 100+1, 10))
+        ax1.set_yticks(np.arange(-100, 100+1, 10))
+        ax1.set_ylim(-80, 70)
         ax1.grid(True)
         plt.tight_layout()
-
+        #--------------------------------------------------------
+    
         for var in ('gain_db', 'op1db_dbm', 'iip2_dbm', 'oip3_dbm'):
             print('%s: '%(var), eval(var))
         
@@ -597,23 +647,23 @@ class Simple_Amplifier(RF_Component):
     def __init__(self, gain_db, nf_db, op1db_dbm=20, oip3_dbm=10, iip2_dbm=40, temp_kelvin=temperature_default):
         """Initialize the amplifier with specified gain, noise figure, and intercept points."""
         self.temp_kelvin = temp_kelvin
-        self.gain_db = gain_db
-        self.nf_db = nf_db
-        self.op1db_dbm = op1db_dbm
-        self.oip3_dbm = oip3_dbm
-        self.iip2_dbm = iip2_dbm
+        self.gain_db     = gain_db
+        self.nf_db       = nf_db
+        self.op1db_dbm   = op1db_dbm
+        self.oip3_dbm    = oip3_dbm
+        self.iip2_dbm    = iip2_dbm
 
         # Convert to linear scale
         self.gain = gain_db_to_gain(self.gain_db)
-        self.nf = nf_db_to_nf(self.nf_db)
+        self.nf   = nf_db_to_nf(self.nf_db)
 
-        self.iip2 = dbm_to_voltage(self.iip2_dbm)
-        self.oip3 = dbm_to_voltage(self.oip3_dbm)
+        self.iip2  = dbm_to_voltage(self.iip2_dbm)
+        self.oip3  = dbm_to_voltage(self.oip3_dbm)
         self.op1db = dbm_to_voltage(self.op1db_dbm)
 
-        self.a1 = self.gain
-        self.a2 = 0.5 * self.a1 / self.iip2
-        self.k_oip3 = 0.27 * 10 ** (self.oip3_dbm / 20)
+        self.a1     = self.gain
+        self.a2     = -0.43*self.a1/self.iip2
+        self.k_oip3 = 6.5e-1*self.oip3
     
     ft = lambda self, x,k: np.tanh(x/k)*k
     def process_signals(self, signals, temp_kelvin=None):
@@ -621,10 +671,21 @@ class Simple_Amplifier(RF_Component):
         temp_kelvin = temp_kelvin if temp_kelvin else self.temp_kelvin
 
         signals.sig2d += self.nf * Signals.generate_noise_dbm(signals.shape, thermal_noise_power_dbm(temp_kelvin, signals.bw_hz))
-        signals.sig2d = self.ft(self.a1 * signals.sig2d, self.k_oip3) + self.a2 * self.ft(signals.sig2d, self.op1db * 2) ** 2
 
+        s   = signals.sig2d
+        
+        s1  = self.ft(self.a1*s, self.k_oip3)
+        
+        s2  = self.a2*s**2
+        s2 -= s2.mean(1)[:, np.newaxis]
+        s2  = self.ft(s2, self.op1db*1.2)
+        
         # OP1dB: 1dB compression point output power
-        signals.sig2d = self.ft(signals.sig2d, self.op1db * 6)
+        signals.sig2d = self.ft(s1+s2, self.op1db*6)
+        
+        #signals.sig2d = self.ft(self.a1 * signals.sig2d, self.k_oip3) + self.a2 * self.ft(signals.sig2d, self.op1db * 2) ** 2
+        # OP1dB: 1dB compression point output power
+        #signals.sig2d = self.ft(signals.sig2d, self.op1db * 6)
 
 # ====================================================================================================
 # RF Modelised Component Class

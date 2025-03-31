@@ -598,6 +598,14 @@ class RF_Component(object):
             print('%s: '%(var), eval(var))
         
         return gain_db, op1db_dbm, iip2_dbm, oip3_dbm
+    
+    def assess_ipx(self, freq_min, freq_max, fr_stp=1e9, temp_kelvin=temperature_default):
+        """Assess the IP2 and IP3 for a frequency range between freq_min and freq_max."""
+        results = []
+        for fc in np.arange(freq_min, freq_max, fr_stp):
+            result = self.assess_ipx_for_freq(fc, df, temp_kelvin)
+            results.append((fc, result))
+        return results
 
 # ====================================================================================================
 # RF Channel Class

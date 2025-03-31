@@ -436,7 +436,7 @@ class RF_Component(object):
 
         return freqs_for_test, gains, phass, n_fgs
 
-    def assess_iipx(self, fc=9e9, df=400e6, temp_kelvin=temperature_default):
+    def assess_ipx_for_freq(self, fc=9e9, df=400e6, temp_kelvin=temperature_default):
         """Assess the IP2 and IP3 (Intercept Point of order 2 and 3) of the RF component."""
         print("""\nAssess the IP2 and IP3 (Intercept Point of order 2 and 3) of the RF component.""")
         

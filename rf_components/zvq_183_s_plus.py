@@ -15,7 +15,7 @@ Auteur: Pessel Arnaud
 # ====================================================================================================
 
 from RF_chain_modeling.rf_utils.csv_data_table import CSVDataTable
-from RF_chain_modeling.rf_utils.rf_modeling import RF_modelised_component
+from RF_chain_modeling.rf_utils.rf_modeling import RF_Modelised_Component
 
 
 csv_data = CSVDataTable('RF_chain_modeling/rf_components/zvq_183_s_plus.tsv', delim_field='\t', multi_df=False)
@@ -25,7 +25,7 @@ if __name__ == '__main__':
 
 
 
-cpnt = RF_modelised_component(
+cpnt = RF_Modelised_Component(
                                freqs      = csv_data.data['freq'], 
                                gains_db   = csv_data.data['gain'],
                                nfs_db     = csv_data.data['nf'],

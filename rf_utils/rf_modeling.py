@@ -1,28 +1,27 @@
-#!/usr/bin/env python
-# coding: utf-8
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 
 """
 Project: RF_chain_modeling
-GitHub: https://github.com/dunaar/RF_chain_modeling
+RF Signal Simulation and Analysis Framework
+
+This module provides a comprehensive framework for simulating and analyzing RF (Radio Frequency) signals and components.
+It includes classes and functions for signal generation, processing, and visualization.
+
+Key Features:
+- Signal generation with tones and noise.
+- RF component modeling (attenuators, amplifiers, cables, filters, antennas).
+- Signal processing and analysis.
+- Visualization of temporal and spectral representations.
+
 Author: Pessel Arnaud
+Date: 2025-03-15
+Version: 0.1
+GitHub: https://github.com/dunaar/RF_chain_modeling
+License: MIT
 """
 
-# ====================================================================================================
-# RF Signal Simulation and Analysis Framework
-#
-# This script provides a comprehensive framework for simulating and analyzing RF (Radio Frequency)
-# signals and components. It includes classes and functions for signal generation, processing,
-# and visualization.
-#
-# Key Features:
-# - Signal generation with tones and noise.
-# - RF component modeling (attenuators, amplifiers, cables, filters, antennas).
-# - Signal processing and analysis.
-# - Visualization of temporal and spectral representations.
-#
-# Author: Pessel Arnaud
-# Date: 2025-03-15
-# ====================================================================================================
+__version__ = "0.1"
 
 import copy
 from abc import ABC, abstractmethod
@@ -41,7 +40,10 @@ import matplotlib.pyplot as plt
 # Constants
 # ====================================================================================================
 
-k_B = 1.38e-23  # Boltzmann constant in Joules per Kelvin
+# Physical Constants
+K_B = 1.38e-23  # Boltzmann constant in Joules per Kelvin
+
+# Default Parameters
 DEFAULT_TEMP_KELVIN = 298.15  # Default temperature in Kelvin: 298,15K = 25°C
 DEFAULT_IMPED_OHMS = 50.0  # Default impedance in ohms for RF systems
 DEFAULT_N_WINDOWS = 32  # Default number of signal windows for processing
@@ -208,7 +210,7 @@ def thermal_noise_power_dbm(temp_kelvin: float, bw_hz: float) -> float:
     Returns:
         float: Thermal noise power in dBm.
     """
-    return watts_to_dbm(k_B * temp_kelvin * bw_hz)  # P = k_B * T * B, then convert to dBm
+    return watts_to_dbm(K_B * temp_kelvin * bw_hz)  # P = K_B * T * B, then convert to dBm
 
 # ====================================================================================================
 # Signal Processing Functions

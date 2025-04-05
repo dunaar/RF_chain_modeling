@@ -43,8 +43,8 @@ import matplotlib.pyplot as plt
 
 k_B = 1.38e-23  # Boltzmann constant in Joules per Kelvin
 DEFAULT_TEMP_KELVIN = 298.15  # Default temperature in Kelvin: 298,15K = 25°C
-DEFAULT_IMPED_OHMS = 50.0
-DEFAULT_N_WINDOWS = 32
+DEFAULT_IMPED_OHMS = 50.0  # Default impedance in ohms for RF systems
+DEFAULT_N_WINDOWS = 32  # Default number of signal windows for processing
 
 # ====================================================================================================
 # Utility Functions
@@ -59,7 +59,7 @@ def dbm_to_watts(power_dbm: float) -> float:
     Returns:
         float: Power in watts.
     """
-    return 10 ** (power_dbm / 10) / 1000
+    return 10 ** (power_dbm / 10) / 1000  # Convert dBm to milliwatts, then to watts
 
 def watts_to_voltage(power_watts: float, imped_ohms: float = DEFAULT_IMPED_OHMS) -> float:
     """Convert power from watts to voltage.
@@ -71,7 +71,7 @@ def watts_to_voltage(power_watts: float, imped_ohms: float = DEFAULT_IMPED_OHMS)
     Returns:
         float: Voltage.
     """
-    return np.sqrt(power_watts * imped_ohms)
+    return np.sqrt(power_watts * imped_ohms)  # V = sqrt(P * R) based on Ohm's law
 
 def dbm_to_voltage(power_dbm: float, imped_ohms: float = DEFAULT_IMPED_OHMS) -> float:
     """Convert power from dBm to voltage.
@@ -83,7 +83,7 @@ def dbm_to_voltage(power_dbm: float, imped_ohms: float = DEFAULT_IMPED_OHMS) -> 
     Returns:
         float: Voltage.
     """
-    return watts_to_voltage(dbm_to_watts(power_dbm), imped_ohms)
+    return watts_to_voltage(dbm_to_watts(power_dbm), imped_ohms)  # Chain conversion: dBm -> watts -> voltage
 
 def gain_db_to_gain(gain_db: float) -> float:
     """Convert gain from dB to linear scale.
@@ -94,11 +94,18 @@ def gain_db_to_gain(gain_db: float) -> float:
     Returns:
         float: Linear gain.
     """
-    return 10 ** (gain_db / 20.0)
+    return 10 ** (gain_db / 20.0)  # Voltage gain: G = 10^(dB/20)
 
 def gain_to_gain_db(gain):
-    """Convert gain from linear scale to dB."""
-    return 20 * np.log10(np.abs(gain))
+    """Convert gain from linear scale to dB.
+    
+    Args:
+        gain: Linear gain value (can be float or numpy array).
+    
+    Returns:
+        float or np.ndarray: Gain in dB.
+    """
+    return 20 * np.log10(np.abs(gain))  # dB = 20 * log10(|G|) for voltage gain
 
 def nf_db_to_nf(nf_db: float) -> float:
     """Convert noise figure from dB to linear scale.
@@ -109,23 +116,53 @@ def nf_db_to_nf(nf_db: float) -> float:
     Returns:
         float: Linear noise figure.
     """
-    return np.sqrt(10 ** (nf_db / 10) - 1)
+    return np.sqrt(10 ** (nf_db / 10) - 1)  # NF_linear = sqrt(F - 1), where F = 10^(NF_dB/10)
 
 def nf_to_nf_db(nf):
-    """Convert noise figure from linear scale to dB."""
-    return 10 * np.log10(nf ** 2 + 1)
+    """Convert noise figure from linear scale to dB.
+    
+    Args:
+        nf: Linear noise figure (can be float or numpy array).
+    
+    Returns:
+        float or np.ndarray: Noise figure in dB.
+    """
+    return 10 * np.log10(nf ** 2 + 1)  # NF_dB = 10 * log10(F), where F = NF_linear^2 + 1
 
 def mul_nfs(nf1, nf2):
-    """Multiply noise factors."""
-    return np.sqrt((nf1 ** 2 + 1) * (nf2 ** 2 + 1) - 1)
+    """Multiply noise factors to compute combined noise figure.
+    
+    Args:
+        nf1: Linear noise figure of first component.
+        nf2: Linear noise figure of second component.
+    
+    Returns:
+        float or np.ndarray: Combined linear noise figure.
+    """
+    return np.sqrt((nf1 ** 2 + 1) * (nf2 ** 2 + 1) - 1)  # Friis formula for noise factor multiplication
 
-def voltage_to_watts(voltage, imped_ohms=50):
-    """Convert voltage to power in watts."""
-    return voltage ** 2 / imped_ohms
+def voltage,to_watts(voltage, imped_ohms=50):
+    """Convert voltage to power in watts.
+    
+    Args:
+        voltage: Voltage value.
+        imped_ohms: Impedance in ohms (default is 50).
+    
+    Returns:
+        float or np.ndarray: Power in watts.
+    """
+    return voltage ** 2 / imped_ohms  # P = V^2 / R
 
 def watts_to_dbm(power_watts):
-    """Convert power from watts to dBm."""
-    return 10 * np.log10(power_watts * 1000)
+    """Convert power from watts to dBm.
+    
+    Args:
+        power_watts: Power in watts (can be float or numpy array).
+    
+    Returns:
+        float or np.ndarray: Power in dBm.
+    """
+    return 10 * np.log10(power_watts * 1000)  # dBm = 10 * log10(P * 1000) to convert watts to milliwatts
 
 def voltage_to_dbm(voltage: float, imped_ohms: float = DEFAULT_IMPED_OHMS) -> float:
     """Convert voltage to power in dBm.
@@ -137,15 +174,29 @@ def voltage_to_dbm(voltage: float, imped_ohms: float = DEFAULT_IMPED_OHMS) -> fl
     Returns:
         float: Power in dBm.
     """
-    return watts_to_dbm(voltage_to_watts(voltage, imped_ohms))
+    return watts_to_dbm(voltage_to_watts(voltage, imped_ohms))  # Chain conversion: voltage -> watts -> dBm
 
 def calculate_rms(signal):
-    """Calculate the RMS value of a signal."""
-    return np.sqrt(np.mean(np.abs(signal) ** 2))
+    """Calculate the RMS value of a signal.
+    
+    Args:
+        signal: Input signal (numpy array).
+    
+    Returns:
+        float or np.ndarray: RMS value of the signal.
+    """
+    return np.sqrt(np.mean(np.abs(signal) ** 2))  # RMS = sqrt(mean(|signal|^2))
 
 def calculate_rms_dbm(signal):
-    """Calculate the RMS value of a signal in dBm."""
-    return voltage_to_dbm(calculate_rms(signal))
+    """Calculate the RMS value of a signal in dBm.
+    
+    Args:
+        signal: Input signal (numpy array).
+    
+    Returns:
+        float: RMS power in dBm.
+    """
+    return voltage_to_dbm(calculate_rms(signal))  # Convert RMS voltage to dBm
 
 def thermal_noise_power_dbm(temp_kelvin: float, bw_hz: float) -> float:
     """Calculate thermal noise power in dBm.
@@ -157,7 +208,7 @@ def thermal_noise_power_dbm(temp_kelvin: float, bw_hz: float) -> float:
     Returns:
         float: Thermal noise power in dBm.
     """
-    return watts_to_dbm(k_B * temp_kelvin * bw_hz)
+    return watts_to_dbm(k_B * temp_kelvin * bw_hz)  # P = k_B * T * B, then convert to dBm
 
 # ====================================================================================================
 # Signal Processing Functions
@@ -174,14 +225,14 @@ def compute_spectrums(sigxd: np.ndarray, sampling_rate: float) -> Tuple[np.ndarr
         Tuple[np.ndarray, np.ndarray]: Frequencies and spectrums.
     """
     if len(sigxd.shape) == 1:
-        sig2d = sigxd.reshape(1, sigxd.shape[0])
+        sig2d = sigxd.reshape(1, sigxd.shape[0])  # Convert 1D to 2D for consistent processing
     else:
         sig2d = sigxd
 
-    n_points = sig2d.shape[1]
+    n_points = sig2d.shape[1]  # Number of samples in each window
 
-    freqs = np.fft.fftfreq(n_points, 1 / sampling_rate)
-    spectrums = np.fft.fft(sig2d, axis=1) / n_points
+    freqs = np.fft.fftfreq(n_points, 1 / sampling_rate)  # Frequency bins
+    spectrums = np.fft.fft(sig2d, axis=1) / n_points  # FFT normalized by number of points
 
     return freqs, spectrums
 
@@ -196,9 +247,9 @@ def get_spectrums_power_n_phase(freqs: np.ndarray, spectrums: np.ndarray, imped_
     Returns:
         Tuple[np.ndarray, np.ndarray]: Power and phase spectrums.
     """
-    spects_amp = np.abs(spectrums)
-    spects_power = voltage_to_dbm(spects_amp, imped_ohms)
-    spects_phase = np.angle(spectrums)
+    spects_amp = np.abs(spectrums)  # Amplitude of the spectrum
+    spects_power = voltage_to_dbm(spects_amp, imped_ohms)  # Convert amplitude to power in dBm
+    spects_phase = np.angle(spectrums)  # Phase in radians
     return spects_power, spects_phase
 
 # ====================================================================================================
@@ -216,36 +267,36 @@ def plot_temporal_signal(time: np.ndarray, sigxd: np.ndarray, tmin: Optional[flo
         title (str): Plot title.
         ylabel (str): Y-axis label.
     """
-    tmin = tmin if tmin is not None else 0
-    tmax = tmax if tmax is not None else time.max()
-    idx_min = np.argmin(np.abs(time - tmin))
-    idx_max = np.argmin(np.abs(time - tmax))
+    tmin = tmin if tmin is not None else 0  # Default to start of signal
+    tmax = tmax if tmax is not None else time.max()  # Default to end of signal
+    idx_min = np.argmin(np.abs(time - tmin))  # Index of closest time to tmin
+    idx_max = np.argmin(np.abs(time - tmax))  # Index of closest time to tmax
 
     # Determine appropriate time unit for plotting
     if (time[-1] - time[0]) > 10:
-        unit = 's'
+        unit = 's'  # Seconds
     elif (time[-1] - time[0]) > 10e-3:
-        time = time * 1e3
+        time = time * 1e3  # Convert to milliseconds
         unit = 'ms'
     elif (time[-1] - time[0]) > 10e-6:
-        time = time * 1e6
+        time = time * 1e6  # Convert to microseconds
         unit = 'us'
     else:
-        time = time * 1e9
+        time = time * 1e9  # Convert to nanoseconds
         unit = 'ns'
 
-    fig, ax = plt.subplots(figsize=(12, 6))
+    fig, ax = plt.subplots(figsize=(12, 6))  # Create figure and axis
     if len(sigxd.shape) == 1:
-        ax.plot(time[idx_min:idx_max], sigxd[idx_min:idx_max])
+        ax.plot(time[idx_min:idx_max], sigxd[idx_min:idx_max])  # Plot 1D signal
     elif len(sigxd.shape) == 2:
         for idx in range(sigxd.shape[0]):
-            ax.plot(time[idx_min:idx_max], sigxd[idx, idx_min:idx_max])
+            ax.plot(time[idx_min:idx_max], sigxd[idx, idx_min:idx_max])  # Plot each window of 2D signal
 
-    ax.set_xlabel(f'Time ({unit})')
-    ax.set_ylabel(ylabel)
-    ax.set_title(title)
-    ax.grid(True)
-    plt.tight_layout()
+    ax.set_xlabel(f'Time ({unit})')  # Label x-axis with time unit
+    ax.set_ylabel(ylabel)  # Set y-axis label
+    ax.set_title(title)  # Set plot title
+    ax.grid(True)  # Add grid
+    plt.tight_layout()  # Adjust layout
 
 def plot_signal_spectrum(freqs: np.ndarray, spectrum_power: np.ndarray, spectrum_phase: Optional[np.ndarray] = None, title_power: str = "Power Spectrum", title_phase: str = "Phase Spectrum", ylabel_power: str = "Power (dBm)", ylabel_phase: str = "Phase (radians)"):
     """Plot the frequency and phase spectrum of a signal.
@@ -260,7 +311,7 @@ def plot_signal_spectrum(freqs: np.ndarray, spectrum_power: np.ndarray, spectrum
         ylabel_phase (str): Y-axis label for phase spectrum.
     """
     freqs = np.array(freqs)
-    idx_max = np.argmax(freqs) + 1
+    idx_max = np.argmax(freqs) + 1  # Index of maximum positive frequency
 
     # Determine appropriate frequency unit for plotting
     if freqs.max() - freqs[0] > 10e9:

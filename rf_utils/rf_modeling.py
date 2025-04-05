@@ -1423,7 +1423,7 @@ def main() -> None:
     """Main function to demonstrate the usage of the RF modeling classes."""
     # Example usage of the classes
     # Create a signal with noise and tones
-    signal = Signals(10e-9, 40e9)  # Note: Parameters seem reversed; should be (fmax, bin_width)
+    signal = Signals(40e9, 10e6)  # fmax = 40 GHz, bin_width = 10 MHz (duration = 1/bin_width = 100 ns)
     signal.add_noise(thermal_noise_power_dbm(signal.temp_kelvin, signal.bw_hz))  # Add thermal noise
     signal.add_tone(3e9, 0, 0)          # Add tone at 3 GHz, 0 dBm
     signal.add_tone(11e9, -55, pi / 4)  # Add tone at 11 GHz, -55 dBm

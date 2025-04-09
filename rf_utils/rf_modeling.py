@@ -1470,6 +1470,32 @@ def main() -> None:
     # Plot spectrum after filtering
     signal.plot_spectrum()
 
+    # Testing components
+    components = [
+        Antenna_Component(freqs=(1e9, 20e9), gains_db=[3,7]),
+        HighPassFilter(cutoff_freq=6e9, order=5, q_factor=0.7),
+        Simple_Amplifier(gain_db=15, iip2_dbm=30, oip3_dbm=20, nf_db=5),
+        Attenuator(att_db=5),
+        Simple_Amplifier(gain_db=15, iip2_dbm=30, oip3_dbm=20, nf_db=5),
+        RF_Cable(length_m=10, insertion_losses_dB=0.5),
+    ]
+
+    chain = RF_chain(components)
+
+    for component in components+[chain]:
+        print(f"Assessing {component.__class__.__name__}")
+        
+        freqs, gains, phases, nf = component.assess_gain()
+        plt.figure()
+        plt.plot(freqs / 1e9, gains)
+        plt.xlabel('Frequency (GHz)')
+        plt.ylabel('Gain (dB)')
+        plt.title(f'Gain vs Frequency for {component.__class__.__name__}')
+        
+        results = component.assess_ipx(freq_min=1e9, freq_max=10e9, fr_stp=1e9)
+        for freq, (gain_db, op1db_dbm, iip2_dbm, oip3_dbm) in results:
+            print(f"Frequency: {freq / 1e9} GHz, Gain: {gain_db} dB, OP1dB: {op1db_dbm} dBm, IIP2: {iip2_dbm} dBm, OIP3: {oip3_dbm} dBm")
+    
     plt.show()  # Display all plots
 
 if __name__ == '__main__':

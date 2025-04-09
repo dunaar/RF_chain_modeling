@@ -1425,7 +1425,7 @@ def main() -> None:
     """Main function to demonstrate the usage of the RF modeling classes."""
     # Example usage of the classes
     # Create a signal with noise and tones
-    signal = Signals(40e9, 10e6)  # fmax = 40 GHz, bin_width = 10 MHz (duration = 1/bin_width = 100 ns)
+    signal = Signals(20e9, 100e6)  # fmax = 40 GHz, bin_width = 10 MHz (duration = 1/bin_width = 100 ns)
     signal.add_noise(thermal_noise_power_dbm(signal.temp_kelvin, signal.bw_hz))  # Add thermal noise
     signal.add_tone(3e9, 0, 0)          # Add tone at 3 GHz, 0 dBm
     signal.add_tone(11e9, -55, pi / 4)  # Add tone at 11 GHz, -55 dBm
@@ -1435,7 +1435,7 @@ def main() -> None:
     print(f"Initial RMS value: {signal.rms_dbm()} dBm")
 
     # Plot temporal signal
-    signal.plot_temporal(10e-9)
+    signal.plot_temporal(tmax=10e-9)
 
     # Plot spectrum
     signal.plot_spectrum()
@@ -1450,7 +1450,7 @@ def main() -> None:
     print(f"RMS value after amplification: {signal.rms_dbm()} dBm")
 
     # Plot temporal signal after amplification
-    signal.plot_temporal(10e-9)
+    signal.plot_temporal(tmax=10e-9)
 
     # Plot spectrum after amplification
     signal.plot_spectrum()
@@ -1465,7 +1465,7 @@ def main() -> None:
     print(f"RMS value after filtering: {signal.rms_dbm()} dBm")
 
     # Plot temporal signal after filtering
-    signal.plot_temporal(10e-9)
+    signal.plot_temporal(tmax=10e-9)
 
     # Plot spectrum after filtering
     signal.plot_spectrum()

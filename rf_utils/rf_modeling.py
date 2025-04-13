@@ -727,21 +727,21 @@ class RF_Component(ABC):
         """
         print("""\nAssess the IP2 and IP3 (Intercept Point of order 2 and 3) of the RF component.""")
         
-        #--------------------------------------------------------
+        # --------------------------------------------------------
         fmax = 2.5 * fc
         bin_width = df / 32
         n_windows = 8
-        #--------------------------------------------------------
+        # --------------------------------------------------------
 
-        #--------------------------------------------------------
+        # --------------------------------------------------------
         input_pwr_m, outpt_pwr_m = [], []
         input_pwr_d, outpt_pwr_d, im2___power, im3___power = [], [], [], []
     
-        gains_db, iip2s_dbm, iip3s_dbm = [], [], []
+        gains_db, idxs_im2___power, idxs_im3___power = [], set(), set()
         ip1db_dbm, op1db_dbm = None, None
-        #--------------------------------------------------------
+        # --------------------------------------------------------
 
-        #--------------------------------------------------------
+        # --------------------------------------------------------
         f1 = fc - df
         f2 = fc + df
         f1pf2 = f1 + f2
@@ -757,9 +757,9 @@ class RF_Component(ABC):
         arg_frq_f1pf2 = signals.get_arg_freq(f1pf2)
         arg_frq_df1mf2 = signals.get_arg_freq(df1mf2)
         arg_frq_df2mf1 = signals.get_arg_freq(df2mf1)
-        #--------------------------------------------------------
+        # --------------------------------------------------------
 
-        #--------------------------------------------------------
+        # --------------------------------------------------------
         for power_dbm in tqdm(range(-50, 50+1), desc="Assessing Gain"):
             # Initialize monotone signals
             signals = Signals(fmax, bin_width, n_windows=n_windows, imped_ohms=50, temp_kelvin=temp_kelvin)
@@ -778,7 +778,7 @@ class RF_Component(ABC):
                 delta_outpt_power = outpt_pwr_m[-1] - outpt_pwr_m[-2]
                 
                 if op1db_dbm is None:
-                    if np.abs(delta_outpt_power / 1 - delta_input_power) / delta_input_power < 0.05:
+                    if np.abs(delta_outpt_power / 1 - delta_input_power) / delta_input_power < 0.02:
                         gains_db.append( outpt_pwr_m[-1] - input_pwr_m[-1] )
                         gain_db = np.array(gains_db).mean()
         
@@ -801,9 +801,9 @@ class RF_Component(ABC):
             print("Error: Unable to characterize P1dB finely.")
             ip1db_dbm = input_pwr_m[-1]
             op1db_dbm = outpt_pwr_m[-1]
-        #--------------------------------------------------------
+        # --------------------------------------------------------
     
-        #--------------------------------------------------------
+        # --------------------------------------------------------
         for power_dbm in tqdm(range(-50, 50+1), desc="Assessing IP2, IP3"):
             # Initialize bitone signals
             signals = Signals(fmax, bin_width, n_windows=n_windows, imped_ohms=50, temp_kelvin=temp_kelvin)
@@ -831,32 +831,50 @@ class RF_Component(ABC):
                 delta_im3___power = im3___power[-1] - im3___power[-2]
                 
                 if im3___power[-1] > input_pwr_d[0] and outpt_pwr_d[-1] < op1db_dbm:
-                    if np.abs(delta_im2___power / 2 - delta_input_power) / delta_input_power < 0.05:
-                        iip2s_dbm.append( input_pwr_d[-1] + (outpt_pwr_d[-1] - im2___power[-1]) )
+                    if np.abs(delta_im2___power / 2 - delta_input_power) / delta_input_power < 0.02:
+                        idxs_im2___power.add( len(im2___power)-2 )
+                        idxs_im2___power.add( len(im2___power)-1 )
         
-                    if np.abs(delta_im3___power / 3 - delta_input_power) / delta_input_power < 0.05:
-                        iip3s_dbm.append( input_pwr_d[-1] + (outpt_pwr_d[-1] - im3___power[-1]) / 2 )
+                    if np.abs(delta_im3___power / 3 - delta_input_power) / delta_input_power < 0.02:
+                        idxs_im3___power.add( len(im3___power)-2 )
+                        idxs_im3___power.add( len(im3___power)-1 )
 
-        idx_mid = len(outpt_pwr_d)//2
-        if iip2s_dbm:
-            iip2_dbm = np.array(iip2s_dbm).mean()
-        else:
+        # Retrieving IP2
+        if len(idxs_im2___power) == 0:
             print("Error: Unable to characterize IP2 finely.")
-            iip2_dbm = input_pwr_d[idx_mid] + (outpt_pwr_d[idx_mid] - im2___power[idx_mid])
-        oip2_dbm  = iip2_dbm + gain_db
-        
-        if iip3s_dbm:
-            iip3_dbm = np.array(iip3s_dbm).mean()
+            idxs_im2___power = list(range(len(im2___power)))
         else:
-            print("Error: Unable to characterize IP3 finely.")
-            if op1db_dbm:
-                iip3_dbm  = ip1db_dbm + 10.
-            else:
-                iip3_dbm = input_pwr_d[idx_mid] + (outpt_pwr_d[idx_mid] - im3___power[idx_mid]) / 2
-        oip3_dbm  = iip3_dbm + gain_db
-        #--------------------------------------------------------
+            idxs_im2___power = list(idxs_im2___power)
 
-        #--------------------------------------------------------
+        input_pwr_im2 = np.array(input_pwr_d)[idxs_im2___power]
+        outpt_pwr_im2 = np.array(im2___power)[idxs_im2___power]
+        im2_slope, im2_inter = np.polyfit(input_pwr_im2, outpt_pwr_im2, 1)
+        print('im2_slope, im2_inter', im2_slope, im2_inter)
+
+        # oip2_dbm = im2_inter + 2 * iip3_dbm
+        # oip2_dbm = gain_db   + 1 * iip3_dbm
+        iip2_dbm = gain_db - im2_inter
+        oip2_dbm = iip2_dbm + gain_db
+        
+        # Retrieving IP3
+        if len(idxs_im3___power) == 0:
+            print("Error: Unable to characterize IP3 finely.")
+            idxs_im3___power = list(range(len(im3___power)))
+        else:
+            idxs_im3___power = list(idxs_im3___power)
+        
+        input_pwr_im3 = np.array(input_pwr_d)[idxs_im3___power]
+        outpt_pwr_im3 = np.array(im3___power)[idxs_im3___power]
+        im3_slope, im3_inter = np.polyfit(input_pwr_im3, outpt_pwr_im3, 1)
+        print('im3_slope, im3_inter', im3_slope, im3_inter)
+
+        # oip3_dbm = im3_inter + 3 * iip3_dbm
+        # oip3_dbm = gain_db   + 1 * iip3_dbm
+        iip3_dbm = (gain_db - im3_inter) / 2
+        oip3_dbm  = iip3_dbm + gain_db
+        # --------------------------------------------------------
+
+        # --------------------------------------------------------
         fig = plt.figure(figsize=(12, 6))
         ax1 = fig.subplots(1, 1)
         ax1.axis('equal')
@@ -879,7 +897,7 @@ class RF_Component(ABC):
         ax1.set_ylim(-80, 70)
         ax1.grid(True)
         plt.tight_layout()
-        #--------------------------------------------------------
+        # --------------------------------------------------------
     
         for var_name in ('gain_db', 'op1db_dbm', 'iip2_dbm', 'oip2_dbm', 'iip3_dbm', 'oip3_dbm'):
             print('%s: '%(var_name), eval(var_name))

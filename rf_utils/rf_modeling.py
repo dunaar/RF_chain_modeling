@@ -826,20 +826,24 @@ class RF_Component(ABC):
                                         signals.spects_power[:, arg_frq_df2mf1]) / 2))
 
             if len(input_pwr_d) >= 2:
-                delta_input_pwr_d = input_pwr_d[-1] - input_pwr_d[-2]
+                #delta_input_pwr_d = input_pwr_d[-1] - input_pwr_d[-2]
                 delta_im2___power = im2___power[-1] - im2___power[-2]
                 delta_im3___power = im3___power[-1] - im3___power[-2]
                 
-                if im3___power[-1] > input_pwr_d[0] and outpt_pwr_d[-1] < op1db_dbm:
-                    if np.abs(delta_im2___power / 2 - delta_input_power) / delta_input_power < 0.02:
+                #print(im3___power[-1], input_pwr_d[0], im3___power[-1], op1db_dbm)
+                if im3___power[-1] > input_pwr_d[0]: #and im3___power[-1] < op1db_dbm:
+                    if np.abs(delta_im2___power / 2 - delta_input_power) / delta_input_power < 0.05:
                         idxs_im2___power.add( len(im2___power)-2 )
                         idxs_im2___power.add( len(im2___power)-1 )
+                        #print('delta: idxs_im2___power', idxs_im2___power)
         
-                    if np.abs(delta_im3___power / 3 - delta_input_power) / delta_input_power < 0.02:
+                    if np.abs(delta_im3___power / 3 - delta_input_power) / delta_input_power < 0.05:
                         idxs_im3___power.add( len(im3___power)-2 )
                         idxs_im3___power.add( len(im3___power)-1 )
+                        #print('delta: idxs_im3___power', idxs_im3___power)
 
         # Retrieving IP2
+        print('idxs_im2___power', idxs_im2___power)
         if len(idxs_im2___power) == 0:
             print("Error: Unable to characterize IP2 finely.")
             idxs_im2___power = list(range(len(im2___power)))
@@ -857,6 +861,7 @@ class RF_Component(ABC):
         oip2_dbm = iip2_dbm + gain_db
         
         # Retrieving IP3
+        print('idxs_im3___power', idxs_im3___power)
         if len(idxs_im3___power) == 0:
             print("Error: Unable to characterize IP3 finely.")
             idxs_im3___power = list(range(len(im3___power)))
@@ -1087,9 +1092,10 @@ class RF_Abstract_Modelised_Component(RF_Component, ABC):
     Provides common functionality and interface for all RF modelised components.
     """
     # Define iip3 coefficient to use after signal normalisation (s/iip3_equiv_gain)
-    k_op1  =  6.0
-    k_iip3 =  9.7e-1
+    k_op1  =  0.73e4
+    k_iip3 =  9.3e-1
     k_iip2 = -0.5
+    k_iip2_sat = 5e3
 
     # Threshold : for each op1_S, iip3_s, iip_2s if any value is below threshold the effect is processed 
     iipx_threshold = dbm_to_voltage(1000)
@@ -1209,7 +1215,7 @@ class RF_Abstract_Modelised_Component(RF_Component, ABC):
 
             # Compression
             if op1ds.min() < self.iipx_threshold:
-                spect__2 = self.ft(np.abs(spect__2), op1ds*5e3) * np.exp(1j * np.angle(spect__2))
+                spect__2 = self.ft(np.abs(spect__2), op1ds*self.k_iip2_sat) * np.exp(1j * np.angle(spect__2))
         else:
             # No effect
             spect__2 = np.zeros_like(spectrums)
@@ -1219,7 +1225,7 @@ class RF_Abstract_Modelised_Component(RF_Component, ABC):
 
         # Apply final compression limiting
         if op1ds.min() < self.iipx_threshold:
-            spectrums = self.ft(np.abs(spectrums), op1ds*0.7e4) * np.exp(1j * np.angle(spectrums))
+            spectrums = self.ft(np.abs(spectrums), op1ds*self.k_op1) * np.exp(1j * np.angle(spectrums))
 
         # Retrieve temporal signal
         signals.sig2d = np.real(np.fft.ifft(spectrums, axis=1))

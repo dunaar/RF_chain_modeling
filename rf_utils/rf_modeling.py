@@ -25,6 +25,7 @@ __version__ = "0.1"
 
 import copy
 from abc import ABC, abstractmethod
+from collections.abc import Iterable
 from tqdm import tqdm
 from typing import Optional, Tuple, Union
 
@@ -51,6 +52,8 @@ DEFAULT_N_WINDOWS = 32  # Default number of signal windows for processing
 # ====================================================================================================
 # Utility Functions
 # ====================================================================================================
+def infs_like(arr: np.ndarray) -> np.ndarray:
+    return np.full_like(arr, np.inf)  # Create an array of the same shape as arr filled with infinity
 
 def dbm_to_watts(power_dbm: float) -> float:
     """Convert power from dBm to watts.
@@ -342,7 +345,8 @@ def plot_signal_spectrum(freqs: np.ndarray, spectrum_power: np.ndarray, spectrum
             if spectrum_phase is not None:
                 axes[1].plot(freqs[:idx_max], spectrum_phase[idx, :idx_max])
 
-    axes[0].set_ylim(spectrum_power.min() - 1.0, spectrum_power.max() + 1.0)
+    ymin, ymax = max(spectrum_power.min(), -1000.), min(spectrum_power.max(), 1000.)
+    axes[0].set_ylim(ymin, ymax)
     axes[0].set_xlabel(f'Frequency ({unit})')
     axes[0].set_ylabel(ylabel_power)
     axes[0].set_title(title_power)
@@ -651,7 +655,7 @@ class RF_Component(ABC):
         Returns:
             Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]: Frequencies, gains (dB), phases (radians), noise figures (dB).
         """
-        print("""\nAssess the gain and phase versus frequency of the RF component.""")
+        print("""Assess the gain and phase versus frequency of the RF component.""")
         
         bin_width = step / 2
         n_windows = 128
@@ -774,7 +778,7 @@ class RF_Component(ABC):
                 delta_outpt_power = outpt_pwr_m[-1] - outpt_pwr_m[-2]
                 
                 if op1db_dbm is None:
-                    if np.abs(delta_outpt_power / 1 - delta_input_power) / delta_input_power < 0.02:
+                    if np.abs(delta_outpt_power / 1 - delta_input_power) / delta_input_power < 0.05:
                         gains_db.append( outpt_pwr_m[-1] - input_pwr_m[-1] )
                         gain_db = np.array(gains_db).mean()
         
@@ -826,11 +830,11 @@ class RF_Component(ABC):
                 delta_im2___power = im2___power[-1] - im2___power[-2]
                 delta_im3___power = im3___power[-1] - im3___power[-2]
                 
-                if outpt_pwr_d[-1] < op1db_dbm:
-                    if np.abs(delta_im2___power / 2 - delta_input_power) / delta_input_power < 0.02:
+                if im3___power[-1] > input_pwr_d[0] and outpt_pwr_d[-1] < op1db_dbm:
+                    if np.abs(delta_im2___power / 2 - delta_input_power) / delta_input_power < 0.05:
                         iip2s_dbm.append( input_pwr_d[-1] + (outpt_pwr_d[-1] - im2___power[-1]) )
         
-                    if np.abs(delta_im3___power / 3 - delta_input_power) / delta_input_power < 0.02:
+                    if np.abs(delta_im3___power / 3 - delta_input_power) / delta_input_power < 0.05:
                         iip3s_dbm.append( input_pwr_d[-1] + (outpt_pwr_d[-1] - im3___power[-1]) / 2 )
 
         idx_mid = len(outpt_pwr_d)//2
@@ -877,8 +881,8 @@ class RF_Component(ABC):
         plt.tight_layout()
         #--------------------------------------------------------
     
-        for var in ('gain_db', 'op1db_dbm', 'iip2_dbm', 'oip3_dbm'):
-            print('%s: '%(var), eval(var))
+        for var_name in ('gain_db', 'op1db_dbm', 'iip2_dbm', 'oip2_dbm', 'iip3_dbm', 'oip3_dbm'):
+            print('%s: '%(var_name), eval(var_name))
         
         return gain_db, op1db_dbm, iip2_dbm, oip3_dbm
     
@@ -1045,12 +1049,12 @@ class Simple_Amplifier(RF_Component):
         s1  = self.ft(self.a1 * s, self.k_oip3)
 
         # Apply second-order non-linearity and remove DC component
-        s2  = self.a2 * s ** 2
-        s2 -= s2.mean(1)[:, np.newaxis]
-        s2  = self.ft(s2, self.op1db * 1.2)
+        s_2  = self.a2 * s ** 2
+        s_2 -= s_2.mean(1)[:, np.newaxis]
+        s_2  = self.ft(s_2, self.op1db * 1.2)
         
         # Combine effects with final compression limiting
-        signals.sig2d = self.ft(s1+s2, self.op1db*6)
+        signals.sig2d = self.ft(s1+s_2, self.op1db*6)
         
         #signals.sig2d = self.ft(self.a1 * signals.sig2d, self.k_oip3) + self.a2 * self.ft(signals.sig2d, self.op1db * 2) ** 2
         # OP1dB: 1dB compression point output power
@@ -1059,8 +1063,150 @@ class Simple_Amplifier(RF_Component):
 # ====================================================================================================
 # RF Modelised Component Class
 # ====================================================================================================
+class RF_Abstract_Modelised_Component(RF_Component, ABC):
+    """Abstract base class representing a modelised RF component with frequency-dependent characteristics.
+    
+    Provides common functionality and interface for all RF modelised components.
+    """
+    # Define iip3 coefficient to use after signal normalisation (s/iip3_equiv_gain)
+    k_op1  =  6.0
+    k_iip3 =  9.7e-1
+    k_iip2 = -0.5
 
-class RF_Modelised_Component(RF_Component):
+    # Threshold : for each op1_S, iip3_s, iip_2s if any value is below threshold the effect is processed 
+    iipx_threshold = dbm_to_voltage(1000)
+
+    # Define out-of-band frequency and gain characteristics
+    freqs_sup    = 100e6 * np.arange(1, 11) # 100 MHz steps above band
+    freqs_inf    = -freqs_sup[::-1]         # Mirror below band
+
+    gains_sup_db = -5.0 * np.arange(1, 11)  # -5 dB per step
+    gains_inf_db = gains_sup_db[::-1]       # -5 dB per step
+
+    gains_sup = gain_db_to_gain(gains_sup_db)
+    gains_inf = gain_db_to_gain(gains_inf_db)
+
+    nfs___sup = nf_db_to_nf(-gains_sup_db)
+    nfs___inf = nf_db_to_nf(-gains_inf_db)
+
+    @abstractmethod
+    def get_rf_parameters_adapted_to_signals(self, signals: Signals, temp_kelvin: Optional[float] = None) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        """Abstract method to return frequency-dependent gains, noise, op1db, iip3 and iip2 figures for the signals.
+        
+        Args:
+            signals (Signals): Input signals object.
+            temp_kelvin (Optional[float]): Temperature in Kelvin, defaults to instance temperature.
+        
+        Returns:
+            Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]: Frequencies, gains, noise figures, op1db, iip3, iip2.
+        
+        Raises:
+            ValueError: If frequency-dependent parameters are not set.
+        """
+        temp_kelvin = temp_kelvin if temp_kelvin is not None else self.temp_kelvin
+    
+    def extend_rf_parameters(self, freqs: np.ndarray, gains: np.ndarray, nf__s: np.ndarray,
+                             op1ds: np.ndarray, iip3s: np.ndarray, iip2s: np.ndarray) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        """Extend frequency-dependent parameters to include out-of-band behavior."""
+        # Extend frequency range for out-of-band behavior
+        freqs_out = np.concatenate((self.freqs_inf + freqs[0], freqs, self.freqs_sup + freqs[-1]))
+
+        _gains_inf = self.gains_inf * gains[0]
+        _gains_sup = self.gains_sup * gains[-1]
+
+        _nfs_inf   = mul_nfs(self.nfs___inf, nf__s[ 0])
+        _nfs_sup   = mul_nfs(self.nfs___sup, nf__s[-1])
+
+        gains = np.concatenate((_gains_inf, gains, _gains_sup))
+        nf__s = np.concatenate((  _nfs_inf, nf__s  ,   _nfs_sup))
+
+        op1ds = np.interp(freqs_out, freqs, op1ds, left=op1ds[0], right=op1ds[-1])
+        iip3s = np.interp(freqs_out, freqs, iip3s, left=iip3s[0], right=iip3s[-1])
+        iip2s = np.interp(freqs_out, freqs, iip2s, left=iip2s[0], right=iip2s[-1])  
+
+        # Extend to negative frequencies (symmetric response)
+        gains = np.concatenate((np.conjugate(gains[freqs_out > 0][::-1]), gains[freqs_out >= 0]))
+        nf__s = np.concatenate((nf__s[freqs_out > 0][::-1], nf__s[freqs_out >= 0]))
+
+        op1ds = np.concatenate((op1ds[freqs_out > 0][::-1], op1ds[freqs_out >= 0]))
+        iip3s = np.concatenate((iip3s[freqs_out > 0][::-1], iip3s[freqs_out >= 0]))
+        iip2s = np.concatenate((iip2s[freqs_out > 0][::-1], iip2s[freqs_out >= 0]))
+
+        freqs_out = np.concatenate((-freqs_out[freqs_out > 0][::-1], freqs_out[freqs_out >= 0]))
+
+        return freqs_out, gains, nf__s, op1ds, iip3s, iip2s
+    
+    def process_signals(self, signals: Signals, temp_kelvin: Optional[float] = None) -> None:
+        """Process signals by applying frequency-dependent gains, noise, and distortion.
+        
+        Args:
+            signals (Signals): Input signals object.
+            temp_kelvin (Optional[float]): Temperature in Kelvin, defaults to instance temperature.
+        """
+        temp_kelvin = temp_kelvin if temp_kelvin is not None else self.temp_kelvin
+
+        # Get RF parameter figures
+        freqs, gains, nf__s, op1ds, iip3s, iip2s = self.get_rf_parameters_adapted_to_signals(signals, temp_kelvin)
+        #for var_name in ('freqs', 'gains', 'nf__s', 'op1ds', 'iip3s', 'iip2s'):
+        #    print(var_name, eval(var_name))
+
+        # Get spectrums of the signals
+        spectrums = np.fft.fft(signals.sig2d, axis=1)
+        fftfreqs  = np.fft.fftfreq(signals.n_points, 1 / signals.sampling_rate)
+
+        # Interpolate gains and noise figures
+        gains = np.interp(fftfreqs, freqs, gains, left=gains[0], right=gains[-1])
+        nf__s = np.interp(fftfreqs, freqs, nf__s, left=nf__s[0], right=nf__s[-1])
+        op1ds = np.interp(fftfreqs, freqs, op1ds, left=op1ds[0], right=op1ds[-1])
+        iip3s = np.interp(fftfreqs, freqs, iip3s, left=iip3s[0], right=iip3s[-1])
+        iip2s = np.interp(fftfreqs, freqs, iip2s, left=iip2s[0], right=iip2s[-1])
+
+        # Apply noise figures in frequency domain
+        noise = Signals.generate_noise_dbm(signals.shape, thermal_noise_power_dbm(temp_kelvin, signals.bw_hz), signals.imped_ohms)
+        spectrums += nf__s * np.fft.fft(noise, axis=1)
+
+        # IIP3 processing
+        # Apply third-order non-linearity
+        if iip3s.min() < self.iipx_threshold:
+            s13 = np.real(np.fft.ifft(spectrums / iip3s, axis=1))
+            s13 = self.ft(s13, self.k_iip3)
+
+            # Retrieve spectrum and apply gain
+            spect_13 = gains * iip3s * np.fft.fft(s13, axis=1)
+        else:
+            # Apply gain
+            spect_13 = spectrums * gains
+
+        # IIP2 processing
+        # Apply second-order non-linearity and remove DC component
+        if iip2s.min() < self.iipx_threshold:
+            s_2  = np.real(np.fft.ifft(spectrums / iip2s, axis=1))
+            s_2  = self.k_iip2 * s_2**2
+
+            # Remove DC component
+            s_2 -= s_2.mean(1)[:, np.newaxis]
+
+            # Retrieve spectrum and apply gain
+            spect__2 = gains * iip2s * np.fft.fft(s_2, axis=1)
+
+            # Compression
+            if op1ds.min() < self.iipx_threshold:
+                spect__2 = self.ft(np.abs(spect__2), op1ds*5e3) * np.exp(1j * np.angle(spect__2))
+        else:
+            # No effect
+            spect__2 = np.zeros_like(spectrums)
+        
+        # Combine effects IPx
+        spectrums = spect_13 + spect__2
+
+        # Apply final compression limiting
+        if op1ds.min() < self.iipx_threshold:
+            spectrums = self.ft(np.abs(spectrums), op1ds*0.7e4) * np.exp(1j * np.angle(spectrums))
+
+        # Retrieve temporal signal
+        signals.sig2d = np.real(np.fft.ifft(spectrums, axis=1))
+
+class RF_Modelised_Component(RF_Abstract_Modelised_Component):
     """Class representing a modelised RF component with frequency-dependent characteristics.
     
     Attributes:
@@ -1069,7 +1215,7 @@ class RF_Modelised_Component(RF_Component):
         gains_db (Optional[np.ndarray]): Gains in dB at each frequency.
         gains (Optional[np.ndarray]): Linear gains (complex if phases provided).
         nfs_db (Optional[np.ndarray]): Noise figures in dB at each frequency.
-        nfs (Optional[np.ndarray]): Linear noise figures.
+        nf__s (Optional[np.ndarray]): Linear noise figures.
         phases_rad (Optional[np.ndarray]): Phases in radians at each frequency.
         nominal_gain_for_im_db (float): Nominal gain for intermodulation calculations in dB.
         op1db_dbm (float): Output 1dB compression point in dBm.
@@ -1086,17 +1232,19 @@ class RF_Modelised_Component(RF_Component):
         gains_sup_db (np.ndarray): Supplementary gains in dB for out-of-band (high).
         gains_sup (np.ndarray): Supplementary linear gains for out-of-band (high).
         gains_inf (np.ndarray): Inferior linear gains for out-of-band (low).
-        nfs_sup (np.ndarray): Supplementary noise figures for out-of-band (high).
-        nfs_inf (np.ndarray): Inferior noise figures for out-of-band (low).
+        nfs___sup (np.ndarray): Supplementary noise figures for out-of-band (high).
+        nfs___inf (np.ndarray): Inferior noise figures for out-of-band (low).
     """
 
-    def __init__(self, freqs: Optional[np.ndarray], gains_db: Optional[np.ndarray], nfs_db: Optional[np.ndarray], phases_rad: Optional[np.ndarray] = None, nominal_gain_for_im_db: Optional[float] = None, op1db_dbm: float = np.inf, oip3_dbm: float = np.inf, iip2_dbm: float = np.inf, temp_kelvin: float = DEFAULT_TEMP_KELVIN) -> None:
+    def __init__(self, freqs: np.ndarray, gains_db: np.ndarray, nfs_db: np.ndarray, phases_rad: Optional[np.ndarray] = None,
+                 op1ds_dbm: Optional[np.ndarray] = None, iip3s_dbm: Optional[np.ndarray] = None, iip2s_dbm: Optional[np.ndarray] = None,
+                 temp_kelvin: float = DEFAULT_TEMP_KELVIN) -> None:
         """Initialize the modelised component with specified characteristics.
         
         Args:
-            freqs (Optional[np.ndarray]): Frequency points in Hz.
-            gains_db (Optional[np.ndarray]): Gains in dB at each frequency.
-            nfs_db (Optional[np.ndarray]): Noise figures in dB at each frequency.
+            freqs (np.ndarray): Frequency points in Hz.
+            gains_db (np.ndarray): Gains in dB at each frequency.
+            nfs_db (np.ndarray): Noise figures in dB at each frequency.
             phases_rad (Optional[np.ndarray]): Phases in radians, defaults to None.
             nominal_gain_for_im_db (Optional[float]): Nominal gain for IM in dB, defaults to None.
             op1db_dbm (float): Output 1dB compression point in dBm, defaults to infinity.
@@ -1104,67 +1252,62 @@ class RF_Modelised_Component(RF_Component):
             iip2_dbm (float): Input IP2 in dBm, defaults to infinity.
             temp_kelvin (float): Temperature in Kelvin, defaults to 298.15 K.
         """
+        # Initialize attributes belonging to input parameters
         self.temp_kelvin = temp_kelvin
 
-        if freqs is None or gains_db is None or nfs_db is None:
-            self.freqs = None
-            self.gains_db = None
-            self.gains = None
-            self.nfs_db = None
-            self.nfs = None
-            self.phases_rad = None
-        else:
-            self.freqs = np.array(freqs)
-            self.gains_db = np.array(gains_db)
-            self.gains = gain_db_to_gain(self.gains_db)
-            self.nfs_db = np.array(nfs_db)
-            self.nfs = nf_db_to_nf(self.nfs_db)
+        for _nm, _typs in (('freqs', (float, Iterable)), ('gains_db', (float, Iterable)),
+                            ('nfs_db', (None, float, Iterable)), ('phases_rad', (None, float, Iterable)),
+                            ('op1ds_dbm', (None, float, Iterable)), ('iip3s_dbm', (None, float, Iterable)), ('iip2s_dbm', (None, float, Iterable))):
+            _convert = False
+            #print(_nm, type(eval(_nm)), eval(_nm))
 
-            if phases_rad is not None:
-                self.phases_rad = np.array(phases_rad)
-                self.gains = self.gains * np.exp(1j * self.phases_rad)  # Complex gains with phase
+            for _typ in _typs:
+                if _typ is float:
+                    try:
+                        setattr(self, _nm, np.array( [float(eval(_nm))] ))
+                        _convert = True
+                    except: pass
+                elif _typ is Iterable:
+                    try:
+                        setattr(self, _nm, np.array(eval(_nm)))
+                        _convert = True
+                    except: pass
+                elif _typ is None:
+                    if eval(_nm) is None:
+                        setattr(self, _nm, None)
+                        _convert = True
 
-        if nominal_gain_for_im_db is not None and nominal_gain_for_im_db > 0:
-            self.nominal_gain_for_im_db = nominal_gain_for_im_db
-            self.op1db_dbm = op1db_dbm
-            self.oip3_dbm = oip3_dbm
-            if iip2_dbm is not np.inf:
-                self.iip2_dbm = iip2_dbm
-            elif oip3_dbm is not np.inf:
-                self.iip2_dbm = 40.  # Default IIP2 if OIP3 is finite
-            else:
-                self.iip2_dbm = np.inf
-        elif nominal_gain_for_im_db is not None:
-            print('[RF_Modelised_Component] Error: nominal_gain_for_im_db:', nominal_gain_for_im_db)
-            nominal_gain_for_im_db = None
+                if _convert: break
 
-        if nominal_gain_for_im_db is None:
-            self.nominal_gain_for_im_db = 1e-99  # Effectively no distortion
-            self.op1db_dbm = np.inf
-            self.oip3_dbm = np.inf
-            self.iip2_dbm = np.inf
+            print('self.'+_nm, type(eval('self.'+_nm)), eval('self.'+_nm))
 
-        self.iip2 = dbm_to_voltage(self.iip2_dbm)
-        self.oip3 = dbm_to_voltage(self.oip3_dbm)
-        self.op1db = dbm_to_voltage(self.op1db_dbm)
+            if not _convert:
+                raise TypeError(f"Invalid type for {self.__class__.__name__}.{_nm}: expected {tuple(_typs)}, got {type(eval(_nm))}")
+            elif getattr(self, _nm) is not None:
+                if getattr(self, _nm).shape != self.freqs.shape:
+                    raise ValueError(f"Invalid value for {self.__class__.__name__}.{_nm}: expected shape {self.freqs.shape}, got {getattr(self, _nm).shape}")
+            elif _nm in ('nfs_db', 'phases_rad'):
+                setattr(self, _nm, np.zeros_like(self.freqs))
+            elif _nm in ('op1ds_dbm', 'iip3s_dbm'):
+                setattr(self, _nm, infs_like(self.freqs))
+            elif _nm == 'iip2s_dbm':
+                # Il semble probable que, lorsqu'IIP2 ou OIP2 n'est pas fourni et que l'IIP3 est connu, il n'existe pas de valeur standard universelle à estimer, car IIP2 et IIP3 dépendent des caractéristiques spécifiques du composant.
+                # Pour les mélangeurs RF, des recherches suggèrent que l'IIP2 est généralement 20 à 40 dB plus élevé que l'IIP3, avec une estimation moyenne autour de 25 dB.
+                # Pour les amplificateurs RF, la différence entre IIP2 et IIP3 est souvent de 15 à 20 dB.
+                # En pratique, pour la modélisation, on peut supposer que l'IIP2 est environ 25 dB plus élevé que l'IIP3 pour les mélangeurs, mais cela reste une approximation.
+                setattr(self, _nm, self.iip3s_dbm + 25)  # Default IIP2 is 25 dB above IIP3
+        
+        # Initialize complementary attributes based on input parameters
+        self.gains = gain_db_to_gain(self.gains_db) * np.exp(1j * self.phases_rad)  # Complex gains
+        self.nf__s = nf_db_to_nf(self.nfs_db) 
+        self.op1ds = dbm_to_voltage(self.op1ds_dbm)
+        self.iip3s = dbm_to_voltage(self.iip3s_dbm)
+        self.iip2s = dbm_to_voltage(self.iip2s_dbm)
 
-        # Distortion coefficients
-        self.a1 = gain_db_to_gain(self.nominal_gain_for_im_db)
-        self.a2 = 0.5 * self.a1 / self.iip2
-        self.k_oip3 = 0.24 * 10 ** (self.oip3_dbm / 20)
+        for var_name in ('self.freqs', 'self.gains', 'self.nf__s', 'self.op1ds', 'self.iip3s', 'self.iip2s'):
+            print(var_name, eval(var_name))
 
-        # Define out-of-band frequency and gain characteristics
-        self.freqs_sup = 100e6 * np.arange(1, 11)  # 100 MHz steps above band
-        self.freqs_inf = -self.freqs_sup[::-1]     # Mirror below band
-
-        self.gains_sup_db = -5.0 * np.arange(1, 11)  # -5 dB per step
-        self.gains_sup = gain_db_to_gain(self.gains_sup_db)
-        self.gains_inf = self.gains_sup[::-1]
-
-        self.nfs_sup = nf_db_to_nf(-self.gains_sup_db)
-        self.nfs_inf = self.nfs_sup[::-1]
-
-    def get_gains_nfs(self, signals: Signals, temp_kelvin: Optional[float] = None) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    def get_rf_parameters_adapted_to_signals(self, signals: Signals, temp_kelvin: Optional[float] = None) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """Get frequency-dependent gains and noise figures for the signals.
         
         Args:
@@ -1177,65 +1320,13 @@ class RF_Modelised_Component(RF_Component):
         Raises:
             ValueError: If frequency-dependent parameters are not set.
         """
-        if self.freqs is None:
-            raise ValueError("Frequency-dependent parameters are not set.")
-        return self.freqs, self.gains, self.nfs
-
-    def process_signals(self, signals: Signals, temp_kelvin: Optional[float] = None) -> None:
-        """Process signals by applying frequency-dependent gains, noise, and distortion.
-        
-        Args:
-            signals (Signals): Input signals object.
-            temp_kelvin (Optional[float]): Temperature in Kelvin, defaults to instance temperature.
-        """
-        temp_kelvin = temp_kelvin if temp_kelvin is not None else self.temp_kelvin
-
-        # Get gains and noise figures
-        freqs, gains, nfs = self.get_gains_nfs(signals, temp_kelvin)
-
-        # Extend frequency range for out-of-band behavior
-        freqs = np.concatenate((self.freqs_inf + freqs[0], freqs, self.freqs_sup + freqs[-1]))
-
-        gains_inf = self.gains_inf * np.exp(1j * np.linspace(-np.angle(gains[0]), 0, num=len(self.gains_inf), endpoint=False))
-        gains_sup = self.gains_sup * np.exp(1j * np.linspace(-np.angle(gains[-1]), 0, num=len(self.gains_sup), endpoint=False)[::-1])
-
-        gains = np.concatenate((gains_inf * gains[0], gains, gains_sup * gains[-1]))
-        nfs = np.concatenate((mul_nfs(self.nfs_inf, nfs[0]), nfs, mul_nfs(self.nfs_sup, nfs[-1])))
-
-        # Extend to negative frequencies (symmetric response)
-        gains = np.concatenate((np.conjugate(gains[freqs > 0][::-1]), gains[freqs >= 0]))
-        nfs = np.concatenate((nfs[freqs > 0][::-1], nfs[freqs >= 0]))
-        freqs = np.concatenate((-freqs[freqs > 0][::-1], freqs[freqs >= 0]))
-
-        # Interpolate gains and noise figures
-        interp_gains = interp1d(freqs, gains, kind='linear', bounds_error=False, fill_value=(gains[0], gains[-1]))
-        interp_nfs = interp1d(freqs, nfs, kind='linear', bounds_error=False, fill_value=(nfs[0], nfs[-1]))
-
-        # Get spectrums of the signals
-        spectrums = np.fft.fft(signals.sig2d, axis=1)
-        fftfreqs = np.fft.fftfreq(signals.n_points, 1 / signals.sampling_rate)
-
-        # Apply noise figures and gains in frequency domain
-        noise = Signals.generate_noise_dbm(signals.shape, thermal_noise_power_dbm(temp_kelvin, signals.bw_hz), signals.imped_ohms)
-        spectrums += interp_nfs(fftfreqs) * np.fft.fft(noise, axis=1)
-        spectrums *= interp_gains(fftfreqs)
-
-        # Retrieve temporal signal
-        signals.sig2d = np.real(np.fft.ifft(spectrums, axis=1))
-
-        # Apply non-linear distortions if specified
-        if not np.isinf(self.oip3_dbm):
-            signals.sig2d /= self.a1  # Normalize before distortion
-            signals.sig2d = self.ft(self.a1 * signals.sig2d, self.k_oip3) + self.a2 * self.ft(signals.sig2d, self.op1db * 2) ** 2
-
-        if not np.isinf(self.op1db_dbm):
-            signals.sig2d = self.ft(signals.sig2d, self.op1db * 11.5)  # Final compression
+        return self.extend_rf_parameters(self.freqs, self.gains, self.nf__s, self.op1ds, self.iip3s, self.iip2s)
 
 # ====================================================================================================
 # RF Cable Class
 # ====================================================================================================
 
-class RF_Cable(RF_Modelised_Component):
+class RF_Cable(RF_Abstract_Modelised_Component):
     """Class representing an RF cable with frequency-dependent insertion losses.
     
     Attributes:
@@ -1258,9 +1349,7 @@ class RF_Cable(RF_Modelised_Component):
         self.alpha = alpha
         self.insertion_losses_dB = insertion_losses_dB
 
-        super().__init__(None, None, None, temp_kelvin=temp_kelvin)
-
-    def get_gains_nfs(self, signals: Signals, temp_kelvin: Optional[float] = None) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    def get_rf_parameters_adapted_to_signals(self, signals: Signals, temp_kelvin: Optional[float] = None) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """Get frequency-dependent gains and noise figures for the RF cable.
         
         Args:
@@ -1272,18 +1361,18 @@ class RF_Cable(RF_Modelised_Component):
         """
         temp_kelvin = temp_kelvin if temp_kelvin else self.temp_kelvin
 
-        freqs = signals.freqs[signals.freqs > 0]
+        freqs    = signals.freqs[signals.freqs >= 0]
         gains_db = -self.insertion_losses_dB - self.alpha * np.sqrt(freqs) * self.length_m  # Frequency-dependent loss
-        gains = gain_db_to_gain(gains_db)
-        nfs = nf_db_to_nf(-gains_db)  # Noise figure equals negative gain for passive device
+        gains    = gain_db_to_gain(gains_db)
+        nf__s    = nf_db_to_nf(-gains_db)  # Noise figure equals negative gain for passive device
 
-        return freqs, gains, nfs
+        return freqs, gains, nf__s, infs_like(freqs), infs_like(freqs), infs_like(freqs)  # No op1db, iip3, iip2 for passive device
 
 # ====================================================================================================
 # High Pass Filter Class
 # ====================================================================================================
 
-class HighPassFilter(RF_Modelised_Component):
+class HighPassFilter(RF_Abstract_Modelised_Component):
     """Class representing a high-pass filter with specified cutoff frequency and order.
     
     Attributes:
@@ -1309,11 +1398,9 @@ class HighPassFilter(RF_Modelised_Component):
         self.order = order
         self.q_factor = q_factor
         self.insertion_losses_dB = insertion_losses_dB
-        self.gain_losses = 10 ** (-self.insertion_losses_dB / 20)  # Convert insertion loss to linear gain
+        self.gain_losses = gain_db_to_gain(-self.insertion_losses_dB)  # Convert insertion loss to linear gain
 
-        super().__init__(None, None, None, temp_kelvin=temp_kelvin)
-
-    def get_gains_nfs(self, signals: Signals, temp_kelvin: Optional[float] = None) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    def get_rf_parameters_adapted_to_signals(self, signals: Signals, temp_kelvin: Optional[float] = None) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """Get frequency-dependent gains and noise figures for the high-pass filter.
         
         Args:
@@ -1331,17 +1418,17 @@ class HighPassFilter(RF_Modelised_Component):
         b, a = butter(self.order, self.cutoff_freq, btype='high', fs=signals.sampling_rate, output='ba')
         w, h = freqz(b, a, worN=freqs, fs=signals.sampling_rate)
 
-        gains = h * self.gain_losses  # Apply insertion loss
+        gains    = h * self.gain_losses  # Apply insertion loss
         gains_db = np.minimum(0., gain_to_gain_db(gains))  # Cap at 0 dB (passive device)
-        nfs = nf_db_to_nf(-gains_db)  # Noise figure based on loss
+        nf__s    = nf_db_to_nf(-gains_db)  # Noise figure based on loss
 
-        return freqs, gains, nfs
+        return freqs, gains, nf__s, infs_like(freqs), infs_like(freqs), infs_like(freqs)  # No op1db, iip3, iip2 for passive device
 
 # ====================================================================================================
 # Antenna Component Class
 # ====================================================================================================
 
-class Antenna_Component(RF_Component):
+class Antenna_Component(RF_Modelised_Component):
     """Class representing an antenna with frequency-dependent gain and phase.
     
     Attributes:
@@ -1366,35 +1453,7 @@ class Antenna_Component(RF_Component):
             phases_rad (Optional[np.ndarray]): Phases in radians, defaults to None.
             temp_kelvin (float): Temperature in Kelvin, defaults to 298.15 K.
         """
-        self.temp_kelvin = temp_kelvin
-
-        self.freqs    = np.array(freqs)
-        self.gains_db = np.array(gains_db)
-        self.gains    = gain_db_to_gain(self.gains_db)
-        
-        if phases_rad is not None:
-            self.phases_rad = np.array(phases_rad)
-            self.gains = self.gains * np.exp(1j * self.phases_rad)  # Complex gains with phase
-
-        # Initializing parameters to manage gains and losses out of band
-        self.freqs_sup = 100e6 * np.arange(1, 11)  # 100 MHz steps above band
-        self.freqs_inf = -self.freqs_sup[::-1]     # Mirror below band
-
-        self.gains_sup_db = -5. * np.arange(1, 11)  # -5 dB per step
-        self.gains_sup    = gain_db_to_gain(self.gains_sup_db)
-        self.gains_inf    = self.gains_sup[::-1]
-
-        # Extend the frequency domain with losses
-        self.freqs = np.concatenate((self.freqs_inf + self.freqs[0], self.freqs, self.freqs_sup + self.freqs[-1]))
-
-        self.gains_inf = self.gains_inf * np.exp(1j * np.linspace(-np.angle(self.gains[ 0]), 0, num=len(self.gains_inf), endpoint=False))
-        self.gains_sup = self.gains_sup * np.exp(1j * np.linspace(-np.angle(self.gains[-1]), 0, num=len(self.gains_sup), endpoint=False)[::-1])
-
-        self.gains = np.concatenate((self.gains_inf * self.gains[0], self.gains, self.gains_sup * self.gains[-1]))
-
-        # Extend to negative frequencies (symmetric response)
-        self.gains = np.concatenate((np.conjugate(self.gains[self.freqs > 0][::-1]), self.gains[self.freqs >= 0]))
-        self.freqs = np.concatenate((-self.freqs[self.freqs > 0][::-1], self.freqs[self.freqs >= 0]))
+        super().__init__(freqs, gains_db, phases_rad, temp_kelvin=temp_kelvin)
 
     def process_signals(self, signals: Signals, temp_kelvin: Optional[float] = None) -> None:
         """Process signals by applying antenna gains and adding thermal noise.
@@ -1403,18 +1462,9 @@ class Antenna_Component(RF_Component):
             signals (Signals): Input signals object.
             temp_kelvin (Optional[float]): Temperature in Kelvin, defaults to instance temperature.
         """
-        temp_kelvin = temp_kelvin if temp_kelvin else self.temp_kelvin
+        temp_kelvin = temp_kelvin if temp_kelvin is not None else self.temp_kelvin
+        super().process_signals(signals, temp_kelvin)
 
-        interp_gains = interp1d(self.freqs, self.gains, kind='linear', bounds_error=False, fill_value=(self.gains[0], self.gains[-1]))
-
-        # Get spectrums of the signals
-        spectrums = np.fft.fft(signals.sig2d, axis=1)
-        fftfreqs = np.fft.fftfreq(signals.n_points, 1 / signals.sampling_rate)
-
-        spectrums *= interp_gains(fftfreqs)  # Apply frequency-dependent gain
-
-        # Retrieve temporal signal
-        signals.sig2d = np.real(np.fft.ifft(spectrums, axis=1))
         signals.sig2d += Signals.generate_noise_dbm(signals.shape, thermal_noise_power_dbm(temp_kelvin, signals.bw_hz))  # Add thermal noise
 
 # ====================================================================================================
@@ -1483,7 +1533,7 @@ def main() -> None:
     chain = RF_chain(components)
 
     for component in components+[chain]:
-        print(f"Assessing {component.__class__.__name__}")
+        print(f"\n=========== Assessing {component.__class__.__name__}")
         
         freqs, gains, phases, nf = component.assess_gain()
         plt.figure()

@@ -23,9 +23,11 @@ License: MIT
 
 __version__ = "0.1"
 
+from cProfile import label
 import copy
 from abc import ABC, abstractmethod
 from collections.abc import Iterable
+from matplotlib.pylab import f
 from tqdm import tqdm
 from typing import Optional, Tuple, Union
 
@@ -169,26 +171,26 @@ def watts_to_dbm(power_watts: Union[float, np.ndarray]) -> Union[float, np.ndarr
     """
     return 10 * np.log10(power_watts * 1000)  # dBm = 10 * log10(P * 1000) to convert watts to milliwatts
 
-def voltage_to_dbm(voltage: float, imped_ohms: float = DEFAULT_IMPED_OHMS) -> float:
+def voltage_to_dbm(voltage: Union[float, np.ndarray], imped_ohms: float = DEFAULT_IMPED_OHMS) -> Union[float, np.ndarray]:
     """Convert voltage to power in dBm.
     
     Args:
-        voltage (float): RMS voltage.
+        voltage (Union[float, np.ndarray]): RMS voltage.
         imped_ohms (float): Impedance in ohms, defaults to 50 ohms.
     
     Returns:
-        float: Power in dBm.
+        Union[float, np.ndarray]: Power in dBm.
     """
     return watts_to_dbm(voltage_to_watts(voltage, imped_ohms))  # Chain conversion: voltage -> watts -> dBm
 
-def calculate_rms(signal: np.ndarray) -> Union[float, np.ndarray]:
+def calculate_rms(signal: np.ndarray) -> float:
     """Calculate the Root Mean Square (RMS) value of a signal.
     
     Args:
         signal (np.ndarray): Input signal (1D or 2D array).
     
     Returns:
-        Union[float, np.ndarray]: RMS value of the signal (scalar for 1D, array for 2D).
+        float: RMS value of the signal (scalar for 1D, array for 2D).
     """
     return np.sqrt(np.mean(np.abs(signal) ** 2))  # RMS = sqrt(mean(|signal|^2))
 
@@ -730,7 +732,7 @@ class RF_Component(ABC):
         print("   -- Central frequency: %.3f GHz, df: %.3f MHz" % (fc / 1e9, df / 1e6), end='')
         
         # --------------------------------------------------------
-        fmax = 2.5 * fc
+        fmax = 3. * fc
         bin_width = df / 4 #32
         n_windows = 1
         # --------------------------------------------------------
@@ -1109,14 +1111,15 @@ class Simple_Amplifier(RF_Component):
 # ====================================================================================================
 # RF Modelised Component Class
 # ====================================================================================================
+switch_print = True
 class RF_Abstract_Modelised_Component(RF_Component, ABC):
     """Abstract base class representing a modelised RF component with frequency-dependent characteristics.
     
     Provides common functionality and interface for all RF modelised components.
     """
     # Define iip3 coefficient to use after signal normalisation (s/iip3_equiv_gain)
-    k_op1  =  1.85
-    k_iip3 =  9.3e-1
+    k_op1  =  2.2
+    k_iip3 =  9.2e-1
     k_iip2 = -0.5
     k_iip2_sat = 1.5
 
@@ -1151,6 +1154,8 @@ class RF_Abstract_Modelised_Component(RF_Component, ABC):
             ValueError: If frequency-dependent parameters are not set.
         """
         temp_kelvin = temp_kelvin if temp_kelvin is not None else self.temp_kelvin
+
+        return self.extend_rf_parameters(signals, temp_kelvin=temp_kelvin)
     
     def extend_rf_parameters(self, freqs: np.ndarray, gains: np.ndarray, nf__s: np.ndarray,
                              op1ds: np.ndarray, iip3s: np.ndarray, iip2s: np.ndarray) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
@@ -1207,6 +1212,20 @@ class RF_Abstract_Modelised_Component(RF_Component, ABC):
         op1ds = np.interp(fftfreqs, freqs, op1ds, left=op1ds[0], right=op1ds[-1])
         iip3s = np.interp(fftfreqs, freqs, iip3s, left=iip3s[0], right=iip3s[-1])
         iip2s = np.interp(fftfreqs, freqs, iip2s, left=iip2s[0], right=iip2s[-1])
+
+        global switch_print
+        if switch_print:
+            switch_print = False
+            sorted_args = fftfreqs.argsort() 
+            plt.figure(figsize=(12, 6))            
+            plt.plot(fftfreqs[sorted_args]/1e9, gain_to_gain_db(np.abs(gains[sorted_args])), 'g-', label='gain')
+            plt.plot(fftfreqs[sorted_args]/1e9, nf_to_nf_db(nf__s[sorted_args]), 'k:', label='nf')
+            plt.plot(fftfreqs[sorted_args]/1e9, voltage_to_dbm(op1ds[sorted_args]), 'g:', label='op1dB')
+            plt.plot(fftfreqs[sorted_args]/1e9, voltage_to_dbm(iip3s[sorted_args]), 'r-', label='iip3')
+            plt.plot(fftfreqs[sorted_args]/1e9, voltage_to_dbm(iip3s[sorted_args])+gain_to_gain_db(np.abs(gains[sorted_args])), 'r:', label='oip3')
+            plt.plot(fftfreqs[sorted_args]/1e9, voltage_to_dbm(iip2s[sorted_args]), 'm-', label='iip2')
+            plt.plot(fftfreqs[sorted_args]/1e9, voltage_to_dbm(iip2s[sorted_args])+gain_to_gain_db(np.abs(gains[sorted_args])), 'm:', label='iip2')
+            plt.legend()
 
         # Apply noise figures in frequency domain
         noise = Signals.generate_noise_dbm(signals.shape, thermal_noise_power_dbm(temp_kelvin, signals.bw_hz), signals.imped_ohms)
@@ -1367,7 +1386,9 @@ class RF_Modelised_Component(RF_Abstract_Modelised_Component):
         Raises:
             ValueError: If frequency-dependent parameters are not set.
         """
-        return self.extend_rf_parameters(self.freqs, self.gains, self.nf__s, self.op1ds, self.iip3s, self.iip2s)
+        parameters = self.extend_rf_parameters(self.freqs, self.gains, self.nf__s, self.op1ds, self.iip3s, self.iip2s)
+
+        return parameters
 
 # ====================================================================================================
 # RF Cable Class

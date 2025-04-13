@@ -31,6 +31,7 @@ cpnt = RF_Modelised_Component(
                                gains_db   = gains_db,
                                nfs_db     = csv_data.data['nf'],
                                phases_rad = csv_data.data['phase'],
+                               op1ds_dbm  = csv_data.data['op1db'],
                                iip3s_dbm  = iip3s_dbm,
                               )
 

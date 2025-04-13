@@ -714,23 +714,25 @@ class RF_Component(ABC):
 
         return freqs_for_test, gains, phass, n_fgs
 
-    def assess_ipx_for_freq(self, fc: float = 9e9, df: float = 400e6, temp_kelvin: float = DEFAULT_TEMP_KELVIN) -> Tuple[float, float, float, float]:
+    def assess_ipx_for_freq(self, fc: float = 9e9, df: float = 100e6, temp_kelvin: float = DEFAULT_TEMP_KELVIN, toplot: bool = False) -> Tuple[float, float, float, float]:
         """Assess the IP2 and IP3 (Intercept Points of order 2 and 3) for a specific frequency.
         
         Args:
             fc (float): Center frequency in Hz, defaults to 9 GHz.
             df (float): Frequency separation in Hz, defaults to 400 MHz.
             temp_kelvin (float): Temperature in Kelvin, defaults to 298.15 K.
+            toplot (bool): If True, generate plots for the assessment.
         
         Returns:
             Tuple[float, float, float, float]: Gain (dB), OP1dB (dBm), IIP2 (dBm), OIP3 (dBm).
         """
-        print("""\nAssess the IP2 and IP3 (Intercept Point of order 2 and 3) of the RF component.""")
+        print("## Assess the IP2 and IP3 (Intercept Point of order 2 and 3) of the RF component.")
+        print("   -- Central frequency: %.3f GHz, df: %.3f MHz" % (fc / 1e9, df / 1e6), end='')
         
         # --------------------------------------------------------
         fmax = 2.5 * fc
-        bin_width = df / 32
-        n_windows = 8
+        bin_width = df / 4 #32
+        n_windows = 1
         # --------------------------------------------------------
 
         # --------------------------------------------------------
@@ -747,6 +749,7 @@ class RF_Component(ABC):
         f1pf2 = f1 + f2
         df1mf2 = 2 * f1 - f2
         df2mf1 = 2 * f2 - f1
+        print(", F1: %.3f GHz, F2: %.3f GHz" % (f1 / 1e9, f2 / 1e9))
         
         # Indexes of frequencies in spectrum
         signals = Signals(fmax, bin_width, n_windows=n_windows, imped_ohms=50, temp_kelvin=temp_kelvin)
@@ -830,7 +833,6 @@ class RF_Component(ABC):
                 delta_im2___power = im2___power[-1] - im2___power[-2]
                 delta_im3___power = im3___power[-1] - im3___power[-2]
                 
-                #print(im3___power[-1], input_pwr_d[0], im3___power[-1], op1db_dbm)
                 if im3___power[-1] > input_pwr_d[0]: #and im3___power[-1] < op1db_dbm:
                     if np.abs(delta_im2___power / 2 - delta_input_power) / delta_input_power < 0.05:
                         idxs_im2___power.add( len(im2___power)-2 )
@@ -843,7 +845,7 @@ class RF_Component(ABC):
                         #print('delta: idxs_im3___power', idxs_im3___power)
 
         # Retrieving IP2
-        print('idxs_im2___power', idxs_im2___power)
+        #print('idxs_im2___power', idxs_im2___power)
         if len(idxs_im2___power) == 0:
             print("Error: Unable to characterize IP2 finely.")
             idxs_im2___power = list(range(len(im2___power)))
@@ -853,7 +855,7 @@ class RF_Component(ABC):
         input_pwr_im2 = np.array(input_pwr_d)[idxs_im2___power]
         outpt_pwr_im2 = np.array(im2___power)[idxs_im2___power]
         im2_slope, im2_inter = np.polyfit(input_pwr_im2, outpt_pwr_im2, 1)
-        print('im2_slope, im2_inter', im2_slope, im2_inter)
+        #print('im2_slope, im2_inter', im2_slope, im2_inter)
 
         # oip2_dbm = im2_inter + 2 * iip3_dbm
         # oip2_dbm = gain_db   + 1 * iip3_dbm
@@ -861,7 +863,7 @@ class RF_Component(ABC):
         oip2_dbm = iip2_dbm + gain_db
         
         # Retrieving IP3
-        print('idxs_im3___power', idxs_im3___power)
+        #print('idxs_im3___power', idxs_im3___power)
         if len(idxs_im3___power) == 0:
             print("Error: Unable to characterize IP3 finely.")
             idxs_im3___power = list(range(len(im3___power)))
@@ -871,7 +873,7 @@ class RF_Component(ABC):
         input_pwr_im3 = np.array(input_pwr_d)[idxs_im3___power]
         outpt_pwr_im3 = np.array(im3___power)[idxs_im3___power]
         im3_slope, im3_inter = np.polyfit(input_pwr_im3, outpt_pwr_im3, 1)
-        print('im3_slope, im3_inter', im3_slope, im3_inter)
+        #print('im3_slope, im3_inter', im3_slope, im3_inter)
 
         # oip3_dbm = im3_inter + 3 * iip3_dbm
         # oip3_dbm = gain_db   + 1 * iip3_dbm
@@ -880,36 +882,38 @@ class RF_Component(ABC):
         # --------------------------------------------------------
 
         # --------------------------------------------------------
-        fig = plt.figure(figsize=(12, 6))
-        ax1 = fig.subplots(1, 1)
-        ax1.axis('equal')
-        
-        ax1.plot( ip1db_dbm, op1db_dbm, 'go' )
-        ax1.plot( iip2_dbm , oip2_dbm , 'mo' )
-        ax1.plot( iip3_dbm , oip3_dbm , 'ro' )
-        
-        ax1.plot( [input_pwr_m[0], input_pwr_m[-1]], [   input_pwr_m[0]+gain_db              , input_pwr_m[-1]+gain_db                 ], 'g:' )
-        ax1.plot( [input_pwr_d[0], input_pwr_d[-1]], [3*(input_pwr_d[0]+gain_db) - 2*oip3_dbm, 3*(input_pwr_d[-1]+gain_db) - 2*oip3_dbm], 'r:' )
-        ax1.plot( [input_pwr_d[0], input_pwr_d[-1]], [2*(input_pwr_d[0]+gain_db) - 1*oip2_dbm, 2*(input_pwr_d[-1]+gain_db) - 1*oip2_dbm], 'm:' )
-        
-        for in_pwrs, out_pwrs, line in ((input_pwr_m, outpt_pwr_m, 'g'), (input_pwr_d, im2___power, 'm'), (input_pwr_d, im3___power, 'r')):
-            ax1.plot(in_pwrs, out_pwrs, line)
-        
-        ax1.set_xlabel('Input power (dBm)')
-        ax1.set_ylabel('Output powers (dBm)')
-        ax1.set_xticks(np.arange(-100, 100+1, 10))
-        ax1.set_yticks(np.arange(-100, 100+1, 10))
-        ax1.set_ylim(-80, 70)
-        ax1.grid(True)
-        plt.tight_layout()
+        # Plotting
+        if toplot:
+            fig = plt.figure(figsize=(12, 6))
+            ax1 = fig.subplots(1, 1)
+            ax1.axis('equal')
+            
+            ax1.plot( ip1db_dbm, op1db_dbm, 'go' )
+            ax1.plot( iip2_dbm , oip2_dbm , 'mo' )
+            ax1.plot( iip3_dbm , oip3_dbm , 'ro' )
+            
+            ax1.plot( [input_pwr_m[0], input_pwr_m[-1]], [   input_pwr_m[0]+gain_db              , input_pwr_m[-1]+gain_db                 ], 'g:' )
+            ax1.plot( [input_pwr_d[0], input_pwr_d[-1]], [3*(input_pwr_d[0]+gain_db) - 2*oip3_dbm, 3*(input_pwr_d[-1]+gain_db) - 2*oip3_dbm], 'r:' )
+            ax1.plot( [input_pwr_d[0], input_pwr_d[-1]], [2*(input_pwr_d[0]+gain_db) - 1*oip2_dbm, 2*(input_pwr_d[-1]+gain_db) - 1*oip2_dbm], 'm:' )
+            
+            for in_pwrs, out_pwrs, line in ((input_pwr_m, outpt_pwr_m, 'g'), (input_pwr_d, im2___power, 'm'), (input_pwr_d, im3___power, 'r')):
+                ax1.plot(in_pwrs, out_pwrs, line)
+            
+            ax1.set_xlabel('Input power (dBm)')
+            ax1.set_ylabel('Output powers (dBm)')
+            ax1.set_xticks(np.arange(-100, 100+1, 10))
+            ax1.set_yticks(np.arange(-100, 100+1, 10))
+            ax1.set_ylim(-80, 70)
+            ax1.grid(True)
+            plt.tight_layout()
+    
+            for var_name in ('gain_db', 'op1db_dbm', 'iip3_dbm', 'oip3_dbm', 'iip2_dbm', 'oip2_dbm'):
+                print('%s: '%(var_name), eval(var_name))
         # --------------------------------------------------------
-    
-        for var_name in ('gain_db', 'op1db_dbm', 'iip2_dbm', 'oip2_dbm', 'iip3_dbm', 'oip3_dbm'):
-            print('%s: '%(var_name), eval(var_name))
         
-        return gain_db, op1db_dbm, iip2_dbm, oip3_dbm
+        return gain_db, op1db_dbm, iip3_dbm, oip3_dbm, iip2_dbm, oip2_dbm
     
-    def assess_ipx(self, freq_min: float, freq_max: float, fr_stp: float = 1e9, temp_kelvin: float = DEFAULT_TEMP_KELVIN) -> list:
+    def assess_ipx(self, freq_min: float, freq_max: float, fr_stp: float = 1e9, df: float = 200e6, temp_kelvin: float = DEFAULT_TEMP_KELVIN, toplot: bool = False) -> list:
         """Assess the IP2 and IP3 for a range of frequencies.
         
         Args:
@@ -922,9 +926,28 @@ class RF_Component(ABC):
             list: List of tuples containing (frequency, (gain_db, op1db_dbm, iip2_dbm, oip3_dbm)).
         """
         results = []
-        for fc in np.arange(freq_min, freq_max, fr_stp):
-            result = self.assess_ipx_for_freq(fc, df=400e6, temp_kelvin=temp_kelvin)  # df fixed at 400 MHz
-            results.append((fc, result))
+        freqs = np.arange(freq_min, freq_max+0.1*fr_stp, fr_stp) # freq_max+0.1*fr_stp: in order to include freq_max
+        for fc in freqs:
+            result = self.assess_ipx_for_freq(fc, df=df, temp_kelvin=temp_kelvin)  # df now variable
+            results.append([fc] + list(result))
+        
+        results = np.array(results).T
+
+        if toplot:
+            fig = plt.figure(figsize=(12, 6))
+            ax1 = fig.subplots(1, 1)
+            
+            for pwr, line, label in ((results[1], 'g', 'gain_db' ), (results[2], 'g:', 'op1db_dbm'),
+                                     (results[3], 'r', 'iip3_dbm'), (results[4], 'r:', 'oip3_dbm' ),
+                                     (results[5], 'm', 'iip2_dbm'), (results[6], 'm:', 'oip2_dbm')):
+                ax1.plot(freqs/1e9, pwr, line, label=label)
+                
+            ax1.legend()
+            ax1.set_xlabel('Frequency (GHz)')
+            ax1.set_ylabel('Power (dB, dBm)')
+            ax1.grid(True)
+            plt.tight_layout()
+        
         return results
 
 # ====================================================================================================
@@ -1092,10 +1115,10 @@ class RF_Abstract_Modelised_Component(RF_Component, ABC):
     Provides common functionality and interface for all RF modelised components.
     """
     # Define iip3 coefficient to use after signal normalisation (s/iip3_equiv_gain)
-    k_op1  =  0.73e4
+    k_op1  =  1.85
     k_iip3 =  9.3e-1
     k_iip2 = -0.5
-    k_iip2_sat = 5e3
+    k_iip2_sat = 1.5
 
     # Threshold : for each op1_S, iip3_s, iip_2s if any value is below threshold the effect is processed 
     iipx_threshold = dbm_to_voltage(1000)
@@ -1215,7 +1238,7 @@ class RF_Abstract_Modelised_Component(RF_Component, ABC):
 
             # Compression
             if op1ds.min() < self.iipx_threshold:
-                spect__2 = self.ft(np.abs(spect__2), op1ds*self.k_iip2_sat) * np.exp(1j * np.angle(spect__2))
+                spect__2 = self.ft(np.abs(spect__2), op1ds*len(fftfreqs)*self.k_iip2_sat) * np.exp(1j * np.angle(spect__2))
         else:
             # No effect
             spect__2 = np.zeros_like(spectrums)
@@ -1225,7 +1248,7 @@ class RF_Abstract_Modelised_Component(RF_Component, ABC):
 
         # Apply final compression limiting
         if op1ds.min() < self.iipx_threshold:
-            spectrums = self.ft(np.abs(spectrums), op1ds*self.k_op1) * np.exp(1j * np.angle(spectrums))
+            spectrums = self.ft(np.abs(spectrums), op1ds * len(fftfreqs) * self.k_op1) * np.exp(1j * np.angle(spectrums)) # len(fftfreqs) as fft bin level not normalised
 
         # Retrieve temporal signal
         signals.sig2d = np.real(np.fft.ifft(spectrums, axis=1))
@@ -1303,7 +1326,7 @@ class RF_Modelised_Component(RF_Abstract_Modelised_Component):
 
                 if _convert: break
 
-            print('self.'+_nm, type(eval('self.'+_nm)), eval('self.'+_nm))
+            #print('self.'+_nm, type(eval('self.'+_nm)), eval('self.'+_nm))
 
             if not _convert:
                 raise TypeError(f"Invalid type for {self.__class__.__name__}.{_nm}: expected {tuple(_typs)}, got {type(eval(_nm))}")
@@ -1328,8 +1351,8 @@ class RF_Modelised_Component(RF_Abstract_Modelised_Component):
         self.iip3s = dbm_to_voltage(self.iip3s_dbm)
         self.iip2s = dbm_to_voltage(self.iip2s_dbm)
 
-        for var_name in ('self.freqs', 'self.gains', 'self.nf__s', 'self.op1ds', 'self.iip3s', 'self.iip2s'):
-            print(var_name, eval(var_name))
+        #for var_name in ('self.freqs', 'self.gains', 'self.nf__s', 'self.op1ds', 'self.iip3s', 'self.iip2s'):
+        #    print(var_name, eval(var_name))
 
     def get_rf_parameters_adapted_to_signals(self, signals: Signals, temp_kelvin: Optional[float] = None) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """Get frequency-dependent gains and noise figures for the signals.

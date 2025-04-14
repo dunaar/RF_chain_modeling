@@ -57,6 +57,88 @@ DEFAULT_N_WINDOWS = 32  # Default number of signal windows for processing
 def infs_like(arr: np.ndarray) -> np.ndarray:
     return np.full_like(arr, np.inf)  # Create an array of the same shape as arr filled with infinity
 
+def util_search_mediane_for_slope(x, y, slope):
+    x, y = np.asarray(x), np.asarray(y)
+
+    neg_args_to_ignore, pos_args_to_ignore = [], [] 
+    b_median1, b_median2 = np.nan, np.nan
+
+    qn20, qp20 = 0., 0.
+    qn50, qp50 = 0., 0
+
+    bmin = y.min() - slope * x.min()
+    bmax = y.max() - slope * x.max()
+    stp  = min(0.1, (bmax-bmin)/100.)
+
+    for b in np.arange(bmin, bmax+0.1*stp, stp):
+        residus = y - (slope * x + b)
+        residus_neg_args = np.flatnonzero(residus < 0)
+        residus_pos_args = np.flatnonzero(residus >= 0)
+
+        qn = len(residus_neg_args) / len(residus)
+        qp = len(residus_pos_args) / len(residus)
+        #print(qn*100., qp*100.)
+        
+        if qn > qn20 and qn < 0.2:
+            qn20 = qn
+            neg_args_to_ignore = residus_neg_args
+        elif qp > qp20 and qp < 0.2:
+            qp20 = qp
+            pos_args_to_ignore = residus_pos_args
+        else:
+            if qn > qn50 and qn <= 0.5:
+                qn50 = qn
+                b_median1 = b
+            
+            if qp > qp50 and qp <= 0.5:
+                qp50 = qp
+                b_median2 = b
+    
+    b_median = b_median1 if np.isnan(b_median2) else (b_median2 if np.isnan(b_median1) else (b_median1 + b_median2) / 2)
+    #print(b_median, b_median1, b_median2)
+
+    args_to_ignore = np.unique(np.concatenate((neg_args_to_ignore, pos_args_to_ignore)))
+
+    args_to_far = np.flatnonzero(np.abs(y - (slope * x + b_median)) > 1.)
+    if len(args_to_far)/len(x) < 0.5:
+        #print('args_to_far:', args_to_far)
+        args_to_ignore = np.unique(np.concatenate((args_to_ignore, args_to_far)))
+
+    #print('args_to_ignore:', args_to_ignore)
+
+    return b_median, args_to_ignore
+
+def search_mediane_for_slope(x, y, slope):
+    """
+    Find the median of the points where the slope is close to a given value.
+    """
+    x = np.asarray(x)
+    y = np.asarray(y)
+    dy = np.diff(y) / np.diff(x)
+
+    args = np.flatnonzero((dy > np.abs(slope)*0.8) & (dy < np.abs(slope)**1.2))
+    args = np.unique(np.concatenate((args, args+1)))
+    xargs, yargs = x, y
+
+    b_median = np.nan
+    for _ in range(3):
+        if len(args) > 0:
+            xargs, yargs = xargs[args], yargs[args]
+            b_median, args_to_ignore = util_search_mediane_for_slope(xargs, yargs, slope)
+            args = np.setdiff1d(np.arange(len(xargs)), args_to_ignore)
+
+    #print(len(x), len(xargs))
+    #plt.figure()
+    #plt.plot(x    , y    -(slope*x    +b_median), 'x')
+    #plt.plot(xargs, yargs-(slope*xargs+b_median), 'x')
+    #xminmax = np.array([x.min(), x.max()])
+    #plt.plot(x    , y    , 'x')
+    #plt.plot(xargs, yargs, 'x')
+    #plt.plot(xminmax, slope*xminmax+b_median, 'x')
+    #plt.grid()
+
+    return slope, b_median
+
 def dbm_to_watts(power_dbm: float) -> float:
     """Convert power from dBm to watts.
     
@@ -594,7 +676,7 @@ class Signals:
 # RF Component Base Class
 # ====================================================================================================
 
-class RF_Component(ABC):
+class RF_Abstract_Base_Component(ABC):
     """Abstract base class for RF components.
     
     Provides common functionality and interface for all RF components.
@@ -741,7 +823,7 @@ class RF_Component(ABC):
         input_pwr_m, outpt_pwr_m = [], []
         input_pwr_d, outpt_pwr_d, im2___power, im3___power = [], [], [], []
     
-        gains_db, idxs_im2___power, idxs_im3___power = [], set(), set()
+        gains_db = []
         ip1db_dbm, op1db_dbm = None, None
         # --------------------------------------------------------
 
@@ -806,6 +888,11 @@ class RF_Component(ABC):
             print("Error: Unable to characterize P1dB finely.")
             ip1db_dbm = input_pwr_m[-1]
             op1db_dbm = outpt_pwr_m[-1]
+        
+        input_pwr_m = np.array(input_pwr_m)
+        outpt_pwr_m = np.array(outpt_pwr_m)
+        h1_slope, h1_inter = search_mediane_for_slope(input_pwr_m, outpt_pwr_m, 1)
+        print('', h1_slope, h1_inter)
         # --------------------------------------------------------
     
         # --------------------------------------------------------
@@ -830,57 +917,27 @@ class RF_Component(ABC):
             im3___power.append(np.mean((signals.spects_power[:, arg_frq_df1mf2] +
                                         signals.spects_power[:, arg_frq_df2mf1]) / 2))
 
-            if len(input_pwr_d) >= 2:
-                #delta_input_pwr_d = input_pwr_d[-1] - input_pwr_d[-2]
-                delta_im2___power = im2___power[-1] - im2___power[-2]
-                delta_im3___power = im3___power[-1] - im3___power[-2]
-                
-                if im3___power[-1] > input_pwr_d[0]: #and im3___power[-1] < op1db_dbm:
-                    if np.abs(delta_im2___power / 2 - delta_input_power) / delta_input_power < 0.05:
-                        idxs_im2___power.add( len(im2___power)-2 )
-                        idxs_im2___power.add( len(im2___power)-1 )
-                        #print('delta: idxs_im2___power', idxs_im2___power)
-        
-                    if np.abs(delta_im3___power / 3 - delta_input_power) / delta_input_power < 0.05:
-                        idxs_im3___power.add( len(im3___power)-2 )
-                        idxs_im3___power.add( len(im3___power)-1 )
-                        #print('delta: idxs_im3___power', idxs_im3___power)
-
-        # Retrieving IP2
-        #print('idxs_im2___power', idxs_im2___power)
-        if len(idxs_im2___power) == 0:
-            print("Error: Unable to characterize IP2 finely.")
-            idxs_im2___power = list(range(len(im2___power)))
-        else:
-            idxs_im2___power = list(idxs_im2___power)
-
-        input_pwr_im2 = np.array(input_pwr_d)[idxs_im2___power]
-        outpt_pwr_im2 = np.array(im2___power)[idxs_im2___power]
-        im2_slope, im2_inter = np.polyfit(input_pwr_im2, outpt_pwr_im2, 1)
-        #print('im2_slope, im2_inter', im2_slope, im2_inter)
-
-        # oip2_dbm = im2_inter + 2 * iip3_dbm
-        # oip2_dbm = gain_db   + 1 * iip3_dbm
-        iip2_dbm = gain_db - im2_inter
-        oip2_dbm = iip2_dbm + gain_db
+        input_pwr_d = np.array(input_pwr_d)
+        im3___power = np.array(im3___power)
+        im2___power = np.array(im2___power)
         
         # Retrieving IP3
-        #print('idxs_im3___power', idxs_im3___power)
-        if len(idxs_im3___power) == 0:
-            print("Error: Unable to characterize IP3 finely.")
-            idxs_im3___power = list(range(len(im3___power)))
+        im3_slope, im3_inter = search_mediane_for_slope(input_pwr_d, im3___power, 3)
+        if np.count_nonzero((np.abs(im3___power - (im3_slope * input_pwr_d + im3_inter)) < 1.))/len(input_pwr_d) > 5e-2:
+            iip3_dbm = (gain_db - im3_inter) / 2
         else:
-            idxs_im3___power = list(idxs_im3___power)
-        
-        input_pwr_im3 = np.array(input_pwr_d)[idxs_im3___power]
-        outpt_pwr_im3 = np.array(im3___power)[idxs_im3___power]
-        im3_slope, im3_inter = np.polyfit(input_pwr_im3, outpt_pwr_im3, 1)
-        #print('im3_slope, im3_inter', im3_slope, im3_inter)
-
-        # oip3_dbm = im3_inter + 3 * iip3_dbm
-        # oip3_dbm = gain_db   + 1 * iip3_dbm
-        iip3_dbm = (gain_db - im3_inter) / 2
+            print("Error: Unable to characterize IP3 finely.")
+            iip3_dbm = op1db_dbm + 14 - gain_db
         oip3_dbm  = iip3_dbm + gain_db
+
+        # Retrieving IP2
+        im2_slope, im2_inter = search_mediane_for_slope(input_pwr_d, im2___power, 2)
+        if np.count_nonzero((np.abs(im2___power - (im2_slope * input_pwr_d + im2_inter)) < 1.))/len(input_pwr_d) > 5e-2:
+            iip2_dbm = gain_db - im2_inter
+        else:
+            print("Error: Unable to characterize IP2 finely.")
+            iip2_dbm = iip3_dbm + 25
+        oip2_dbm = iip2_dbm + gain_db if iip2_dbm is not None else None
         # --------------------------------------------------------
 
         # --------------------------------------------------------
@@ -956,18 +1013,18 @@ class RF_Component(ABC):
 # RF Channel Class
 # ====================================================================================================
 
-class RF_chain(RF_Component):
+class RF_chain(RF_Abstract_Base_Component):
     """Class representing an RF chain composed of multiple RF components.
     
     Attributes:
-        rf_components (list): List of RF_Component instances in the chain.
+        rf_components (list): List of RF_Abstract_Base_Component instances in the chain.
     """
 
     def __init__(self, rf_components: list = []) -> None:
         """Initialize the RF chain with a list of components.
         
         Args:
-            rf_components (list): List of RF_Component objects, defaults to empty list.
+            rf_components (list): List of RF_Abstract_Base_Component objects, defaults to empty list.
         """
         self.rf_components = list(rf_components)
 
@@ -985,7 +1042,7 @@ class RF_chain(RF_Component):
 # Attenuator Class
 # ====================================================================================================
 
-class Attenuator(RF_Component):
+class Attenuator(RF_Abstract_Base_Component):
     """Class representing an attenuator RF component.
     
     Attributes:
@@ -1028,7 +1085,7 @@ class Attenuator(RF_Component):
 # Simple Amplifier Class
 # ====================================================================================================
 
-class Simple_Amplifier(RF_Component):
+class Simple_Amplifier(RF_Abstract_Base_Component):
     """Class representing a simple amplifier with gain, noise figure, and non-linearities.
     
     Attributes:
@@ -1112,7 +1169,7 @@ class Simple_Amplifier(RF_Component):
 # RF Modelised Component Class
 # ====================================================================================================
 switch_print = True
-class RF_Abstract_Modelised_Component(RF_Component, ABC):
+class RF_Abstract_Modelised_Component(RF_Abstract_Base_Component, ABC):
     """Abstract base class representing a modelised RF component with frequency-dependent characteristics.
     
     Provides common functionality and interface for all RF modelised components.
@@ -1174,17 +1231,7 @@ class RF_Abstract_Modelised_Component(RF_Component, ABC):
 
         op1ds = np.interp(freqs_out, freqs, op1ds, left=op1ds[0], right=op1ds[-1])
         iip3s = np.interp(freqs_out, freqs, iip3s, left=iip3s[0], right=iip3s[-1])
-        iip2s = np.interp(freqs_out, freqs, iip2s, left=iip2s[0], right=iip2s[-1])  
-
-        # Extend to negative frequencies (symmetric response)
-        gains = np.concatenate((np.conjugate(gains[freqs_out > 0][::-1]), gains[freqs_out >= 0]))
-        nf__s = np.concatenate((nf__s[freqs_out > 0][::-1], nf__s[freqs_out >= 0]))
-
-        op1ds = np.concatenate((op1ds[freqs_out > 0][::-1], op1ds[freqs_out >= 0]))
-        iip3s = np.concatenate((iip3s[freqs_out > 0][::-1], iip3s[freqs_out >= 0]))
-        iip2s = np.concatenate((iip2s[freqs_out > 0][::-1], iip2s[freqs_out >= 0]))
-
-        freqs_out = np.concatenate((-freqs_out[freqs_out > 0][::-1], freqs_out[freqs_out >= 0]))
+        iip2s = np.interp(freqs_out, freqs, iip2s, left=iip2s[0], right=iip2s[-1])
 
         return freqs_out, gains, nf__s, op1ds, iip3s, iip2s
     
@@ -1199,12 +1246,27 @@ class RF_Abstract_Modelised_Component(RF_Component, ABC):
 
         # Get RF parameter figures
         freqs, gains, nf__s, op1ds, iip3s, iip2s = self.get_rf_parameters_adapted_to_signals(signals, temp_kelvin)
+
+        # Extend to negative frequencies (symmetric response)
+        if np.count_nonzero(freqs<0.) == 0:
+            gains = np.concatenate((np.conjugate(gains[freqs > 0][::-1]), gains[freqs >= 0]))
+            nf__s = np.concatenate((nf__s[freqs > 0][::-1], nf__s[freqs >= 0]))
+
+            op1ds = np.concatenate((op1ds[freqs > 0][::-1], op1ds[freqs >= 0]))
+            iip3s = np.concatenate((iip3s[freqs > 0][::-1], iip3s[freqs >= 0]))
+            iip2s = np.concatenate((iip2s[freqs > 0][::-1], iip2s[freqs >= 0]))
+
+            freqs = np.concatenate((-freqs[freqs > 0][::-1], freqs[freqs >= 0]))
+
+        if np.count_nonzero(freqs<0.) != np.count_nonzero(freqs>0.):
+            raise ValueError("Frequency-dependent parameters are not set correctly.")
+
         #for var_name in ('freqs', 'gains', 'nf__s', 'op1ds', 'iip3s', 'iip2s'):
         #    print(var_name, eval(var_name))
 
         # Get spectrums of the signals
-        spectrums = np.fft.fft(signals.sig2d, axis=1)
         fftfreqs  = np.fft.fftfreq(signals.n_points, 1 / signals.sampling_rate)
+        spectrums = np.fft.fft(signals.sig2d, axis=1) / len(fftfreqs)
 
         # Interpolate gains and noise figures
         gains = np.interp(fftfreqs, freqs, gains, left=gains[0], right=gains[-1])
@@ -1218,27 +1280,27 @@ class RF_Abstract_Modelised_Component(RF_Component, ABC):
             switch_print = False
             sorted_args = fftfreqs.argsort() 
             plt.figure(figsize=(12, 6))            
-            plt.plot(fftfreqs[sorted_args]/1e9, gain_to_gain_db(np.abs(gains[sorted_args])), 'g-', label='gain')
+            plt.plot(fftfreqs[sorted_args]/1e9, gain_to_gain_db(gains[sorted_args]), 'g-', label='gain')
             plt.plot(fftfreqs[sorted_args]/1e9, nf_to_nf_db(nf__s[sorted_args]), 'k:', label='nf')
             plt.plot(fftfreqs[sorted_args]/1e9, voltage_to_dbm(op1ds[sorted_args]), 'g:', label='op1dB')
             plt.plot(fftfreqs[sorted_args]/1e9, voltage_to_dbm(iip3s[sorted_args]), 'r-', label='iip3')
-            plt.plot(fftfreqs[sorted_args]/1e9, voltage_to_dbm(iip3s[sorted_args])+gain_to_gain_db(np.abs(gains[sorted_args])), 'r:', label='oip3')
+            plt.plot(fftfreqs[sorted_args]/1e9, voltage_to_dbm(iip3s[sorted_args])+gain_to_gain_db(gains[sorted_args]), 'r:', label='oip3')
             plt.plot(fftfreqs[sorted_args]/1e9, voltage_to_dbm(iip2s[sorted_args]), 'm-', label='iip2')
-            plt.plot(fftfreqs[sorted_args]/1e9, voltage_to_dbm(iip2s[sorted_args])+gain_to_gain_db(np.abs(gains[sorted_args])), 'm:', label='iip2')
+            plt.plot(fftfreqs[sorted_args]/1e9, voltage_to_dbm(iip2s[sorted_args])+gain_to_gain_db(gains[sorted_args]), 'm:', label='iip2')
             plt.legend()
 
         # Apply noise figures in frequency domain
         noise = Signals.generate_noise_dbm(signals.shape, thermal_noise_power_dbm(temp_kelvin, signals.bw_hz), signals.imped_ohms)
-        spectrums += nf__s * np.fft.fft(noise, axis=1)
+        spectrums += nf__s * np.fft.fft(noise, axis=1) / len(fftfreqs)
 
         # IIP3 processing
         # Apply third-order non-linearity
         if iip3s.min() < self.iipx_threshold:
-            s13 = np.real(np.fft.ifft(spectrums / iip3s, axis=1))
+            s13 = np.real(np.fft.ifft(spectrums * len(fftfreqs) / iip3s, axis=1))
             s13 = self.ft(s13, self.k_iip3)
 
             # Retrieve spectrum and apply gain
-            spect_13 = gains * iip3s * np.fft.fft(s13, axis=1)
+            spect_13 = gains * iip3s * np.fft.fft(s13, axis=1) / len(fftfreqs)
         else:
             # Apply gain
             spect_13 = spectrums * gains
@@ -1246,18 +1308,18 @@ class RF_Abstract_Modelised_Component(RF_Component, ABC):
         # IIP2 processing
         # Apply second-order non-linearity and remove DC component
         if iip2s.min() < self.iipx_threshold:
-            s_2  = np.real(np.fft.ifft(spectrums / iip2s, axis=1))
+            s_2  = np.real(np.fft.ifft(spectrums * len(fftfreqs) / iip2s, axis=1))
             s_2  = self.k_iip2 * s_2**2
 
             # Remove DC component
             s_2 -= s_2.mean(1)[:, np.newaxis]
 
             # Retrieve spectrum and apply gain
-            spect__2 = gains * iip2s * np.fft.fft(s_2, axis=1)
+            spect__2 = gains * iip2s * np.fft.fft(s_2, axis=1) / len(fftfreqs)
 
             # Compression
             if op1ds.min() < self.iipx_threshold:
-                spect__2 = self.ft(np.abs(spect__2), op1ds*len(fftfreqs)*self.k_iip2_sat) * np.exp(1j * np.angle(spect__2))
+                spect__2 = self.ft(np.abs(spect__2), op1ds * self.k_iip2_sat) * np.exp(1j * np.angle(spect__2))
         else:
             # No effect
             spect__2 = np.zeros_like(spectrums)
@@ -1267,10 +1329,12 @@ class RF_Abstract_Modelised_Component(RF_Component, ABC):
 
         # Apply final compression limiting
         if op1ds.min() < self.iipx_threshold:
-            spectrums = self.ft(np.abs(spectrums), op1ds * len(fftfreqs) * self.k_op1) * np.exp(1j * np.angle(spectrums)) # len(fftfreqs) as fft bin level not normalised
+            spectrums = self.ft(np.abs(spectrums), op1ds * self.k_op1) * np.exp(1j * np.angle(spectrums))
+
+        #print('out:', voltage_to_dbm(np.abs(spectrums[:, idx_frtest])))
 
         # Retrieve temporal signal
-        signals.sig2d = np.real(np.fft.ifft(spectrums, axis=1))
+        signals.sig2d = np.real(np.fft.ifft( spectrums*len(fftfreqs), axis=1 ))
 
 class RF_Modelised_Component(RF_Abstract_Modelised_Component):
     """Class representing a modelised RF component with frequency-dependent characteristics.
@@ -1480,7 +1544,7 @@ class HighPassFilter(RF_Abstract_Modelised_Component):
         """
         temp_kelvin = temp_kelvin if temp_kelvin else self.temp_kelvin
 
-        freqs = signals.freqs[signals.freqs > 0]
+        freqs = signals.freqs[signals.freqs >= 0]
 
         # Design Butterworth high-pass filter
         b, a = butter(self.order, self.cutoff_freq, btype='high', fs=signals.sampling_rate, output='ba')

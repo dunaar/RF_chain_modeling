@@ -1229,6 +1229,13 @@ class RF_Abstract_Modelised_Component(RF_Abstract_Base_Component, ABC):
         gains = np.concatenate((_gains_inf, gains, _gains_sup))
         nf__s = np.concatenate((  _nfs_inf, nf__s  ,   _nfs_sup))
 
+        # Remove negative frequencies
+        freq_args = np.flatnonzero(freqs_out >= 0.)
+        freqs_out = freqs_out[freq_args]
+        gains     = gains[freq_args]
+        nf__s     = nf__s[freq_args]
+
+        # Interpolate op1dB, iip3, and iip2
         op1ds = np.interp(freqs_out, freqs, op1ds, left=op1ds[0], right=op1ds[-1])
         iip3s = np.interp(freqs_out, freqs, iip3s, left=iip3s[0], right=iip3s[-1])
         iip2s = np.interp(freqs_out, freqs, iip2s, left=iip2s[0], right=iip2s[-1])
@@ -1259,6 +1266,8 @@ class RF_Abstract_Modelised_Component(RF_Abstract_Base_Component, ABC):
             freqs = np.concatenate((-freqs[freqs > 0][::-1], freqs[freqs >= 0]))
 
         if np.count_nonzero(freqs<0.) != np.count_nonzero(freqs>0.):
+            print(np.count_nonzero(freqs<0.), np.count_nonzero(freqs>0.))
+            print(freqs[freqs<0.], freqs[freqs>0.])
             raise ValueError("Frequency-dependent parameters are not set correctly.")
 
         #for var_name in ('freqs', 'gains', 'nf__s', 'op1ds', 'iip3s', 'iip2s'):
@@ -1286,7 +1295,8 @@ class RF_Abstract_Modelised_Component(RF_Abstract_Base_Component, ABC):
             plt.plot(fftfreqs[sorted_args]/1e9, voltage_to_dbm(iip3s[sorted_args]), 'r-', label='iip3')
             plt.plot(fftfreqs[sorted_args]/1e9, voltage_to_dbm(iip3s[sorted_args])+gain_to_gain_db(gains[sorted_args]), 'r:', label='oip3')
             plt.plot(fftfreqs[sorted_args]/1e9, voltage_to_dbm(iip2s[sorted_args]), 'm-', label='iip2')
-            plt.plot(fftfreqs[sorted_args]/1e9, voltage_to_dbm(iip2s[sorted_args])+gain_to_gain_db(gains[sorted_args]), 'm:', label='iip2')
+            plt.plot(fftfreqs[sorted_args]/1e9, voltage_to_dbm(iip2s[sorted_args])+gain_to_gain_db(gains[sorted_args]), 'm:', label='oip2')
+            plt.grid()
             plt.legend()
 
         # Apply noise figures in frequency domain

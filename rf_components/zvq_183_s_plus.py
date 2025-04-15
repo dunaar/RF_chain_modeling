@@ -50,6 +50,5 @@ if __name__ == '__main__':
     ####
     cpnt.assess_iipx()
 
-    
     ####
     plt.show()

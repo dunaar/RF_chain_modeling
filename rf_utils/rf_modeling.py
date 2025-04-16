@@ -39,6 +39,8 @@ from scipy.interpolate import interp1d
 
 import matplotlib.pyplot as plt
 
+from .util_search_mediane import search_mediane_for_slope
+
 # ====================================================================================================
 # Constants
 # ====================================================================================================
@@ -56,88 +58,6 @@ DEFAULT_N_WINDOWS = 32  # Default number of signal windows for processing
 # ====================================================================================================
 def infs_like(arr: np.ndarray) -> np.ndarray:
     return np.full_like(arr, np.inf)  # Create an array of the same shape as arr filled with infinity
-
-def util_search_mediane_for_slope(x, y, slope):
-    x, y = np.asarray(x), np.asarray(y)
-
-    neg_args_to_ignore, pos_args_to_ignore = [], [] 
-    b_median1, b_median2 = np.nan, np.nan
-
-    qn20, qp20 = 0., 0.
-    qn50, qp50 = 0., 0
-
-    bmin = y.min() - slope * x.min()
-    bmax = y.max() - slope * x.max()
-    stp  = min(0.1, (bmax-bmin)/100.)
-
-    for b in np.arange(bmin, bmax+0.1*stp, stp):
-        residus = y - (slope * x + b)
-        residus_neg_args = np.flatnonzero(residus < 0)
-        residus_pos_args = np.flatnonzero(residus >= 0)
-
-        qn = len(residus_neg_args) / len(residus)
-        qp = len(residus_pos_args) / len(residus)
-        #print(qn*100., qp*100.)
-        
-        if qn > qn20 and qn < 0.2:
-            qn20 = qn
-            neg_args_to_ignore = residus_neg_args
-        elif qp > qp20 and qp < 0.2:
-            qp20 = qp
-            pos_args_to_ignore = residus_pos_args
-        else:
-            if qn > qn50 and qn <= 0.5:
-                qn50 = qn
-                b_median1 = b
-            
-            if qp > qp50 and qp <= 0.5:
-                qp50 = qp
-                b_median2 = b
-    
-    b_median = b_median1 if np.isnan(b_median2) else (b_median2 if np.isnan(b_median1) else (b_median1 + b_median2) / 2)
-    #print(b_median, b_median1, b_median2)
-
-    args_to_ignore = np.unique(np.concatenate((neg_args_to_ignore, pos_args_to_ignore)))
-
-    args_to_far = np.flatnonzero(np.abs(y - (slope * x + b_median)) > 1.)
-    if len(args_to_far)/len(x) < 0.5:
-        #print('args_to_far:', args_to_far)
-        args_to_ignore = np.unique(np.concatenate((args_to_ignore, args_to_far)))
-
-    #print('args_to_ignore:', args_to_ignore)
-
-    return b_median, args_to_ignore
-
-def search_mediane_for_slope(x, y, slope):
-    """
-    Find the median of the points where the slope is close to a given value.
-    """
-    x = np.asarray(x)
-    y = np.asarray(y)
-    dy = np.diff(y) / np.diff(x)
-
-    args = np.flatnonzero((dy > np.abs(slope)*0.8) & (dy < np.abs(slope)**1.2))
-    args = np.unique(np.concatenate((args, args+1)))
-    xargs, yargs = x, y
-
-    b_median = np.nan
-    for _ in range(3):
-        if len(args) > 0:
-            xargs, yargs = xargs[args], yargs[args]
-            b_median, args_to_ignore = util_search_mediane_for_slope(xargs, yargs, slope)
-            args = np.setdiff1d(np.arange(len(xargs)), args_to_ignore)
-
-    #print(len(x), len(xargs))
-    #plt.figure()
-    #plt.plot(x    , y    -(slope*x    +b_median), 'x')
-    #plt.plot(xargs, yargs-(slope*xargs+b_median), 'x')
-    #xminmax = np.array([x.min(), x.max()])
-    #plt.plot(x    , y    , 'x')
-    #plt.plot(xargs, yargs, 'x')
-    #plt.plot(xminmax, slope*xminmax+b_median, 'x')
-    #plt.grid()
-
-    return slope, b_median
 
 def dbm_to_watts(power_dbm: float) -> float:
     """Convert power from dBm to watts.

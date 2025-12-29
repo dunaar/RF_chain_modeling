@@ -23,13 +23,14 @@ License: MIT
 
 __version__ = "0.1"
 
-from cProfile import label
+import logging
+from typing import Optional, Tuple, Union
+
 import copy
 from abc import ABC, abstractmethod
 from collections.abc import Iterable
 from matplotlib.pylab import f
 from tqdm import tqdm
-from typing import Optional, Tuple, Union
 
 import numpy as np
 from numpy import pi
@@ -41,10 +42,11 @@ import matplotlib.pyplot as plt
 
 from .util_search_mediane import search_mediane_for_slope
 
+logger = logging.getLogger(__name__)
+
 # ====================================================================================================
 # Constants
 # ====================================================================================================
-
 # Physical Constants
 K_B = 1.38e-23  # Boltzmann constant in Joules per Kelvin
 
@@ -613,7 +615,7 @@ class RF_Abstract_Base_Component(ABC):
         Returns:
             np.ndarray: Transformed signal array.
         """
-        return np.tanh(x / k) * k
+        return k * np.tanh(x / k)
 
     @abstractmethod
     def process_signals(self, signals: Signals, temp_kelvin: Optional[float] = None) -> None:
@@ -639,8 +641,8 @@ class RF_Abstract_Base_Component(ABC):
         if not inplace:
             signals = copy.deepcopy(signals)
 
-        means = (1.0 - 1e-3) * signals.sig2d.mean(axis=1)  # Calculate DC offset
-        signals.sig2d = signals.sig2d - means[:, np.newaxis]  # DC block: remove continuous signal
+        means = (1.0 - 1e-3) * signals.sig2d.mean(axis=1, keepdims=True)  # Calculate DC offset
+        signals.sig2d -= means                                            # DC block: remove continuous signal
 
         self.process_signals(signals, temp_kelvin=temp_kelvin)
         signals._spectrum_uptodate = False
@@ -659,7 +661,7 @@ class RF_Abstract_Base_Component(ABC):
         Returns:
             Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]: Frequencies, gains (dB), phases (radians), noise figures (dB).
         """
-        print("""Assess the gain and phase versus frequency of the RF component.""")
+        logger.info( f"<{self.__class__.__name__}> Assess the gain and phase versus frequency of the RF component.")
         
         bin_width = step / 2
         n_windows = 128
@@ -714,7 +716,7 @@ class RF_Abstract_Base_Component(ABC):
         phass[phass >  pi] -= 2 * pi
 
         #for var in ('freqs_for_test', 'gains', 'phass, n_fgs'):
-        #    print('%s: '%(var), eval(var))
+            #logger.info( f'<{self.__class__.__name__}> {var}: {eval(var)}' )
 
         return freqs_for_test, gains, phass, n_fgs
 
@@ -730,8 +732,8 @@ class RF_Abstract_Base_Component(ABC):
         Returns:
             Tuple[float, float, float, float]: Gain (dB), OP1dB (dBm), IIP2 (dBm), OIP3 (dBm).
         """
-        print("## Assess the IP2 and IP3 (Intercept Point of order 2 and 3) of the RF component.")
-        print("   -- Central frequency: %.3f GHz, df: %.3f MHz" % (fc / 1e9, df / 1e6), end='')
+        logger.info( f'<{self.__class__.__name__}> ## Assess the IP2 and IP3 (Intercept Point of order 2 and 3) of the RF component.' )
+        logger.info( f'<{self.__class__.__name__}>   -- Central frequency: {fc / 1e9:.3f} GHz, df: {df / 1e6:.3f} MHz' )
         
         # --------------------------------------------------------
         fmax = 3. * fc
@@ -753,7 +755,7 @@ class RF_Abstract_Base_Component(ABC):
         f1pf2 = f1 + f2
         df1mf2 = 2 * f1 - f2
         df2mf1 = 2 * f2 - f1
-        print(", F1: %.3f GHz, F2: %.3f GHz" % (f1 / 1e9, f2 / 1e9))
+        logger.info( f'<{self.__class__.__name__}> F1: {f1 / 1e9:.3f} GHz, F2: {f2 / 1e9:.3f} GHz' )
         
         # Indexes of frequencies in spectrum
         signals = Signals(fmax, bin_width, n_windows=n_windows, imped_ohms=50, temp_kelvin=temp_kelvin)
@@ -801,18 +803,18 @@ class RF_Abstract_Base_Component(ABC):
                                               )
             
         if not gains_db:
-            print("Error: Unable to characterize Gain finely.")
+            logger.info( f'<{self.__class__.__name__}> Error: Unable to characterize Gain finely.' )
             gain_db  = outpt_pwr_m[len(outpt_pwr_m)//2] - input_pwr_m[len(outpt_pwr_m)//2]
     
         if op1db_dbm is None:
-            print("Error: Unable to characterize P1dB finely.")
+            logger.info( f'<{self.__class__.__name__}> Error: Unable to characterize P1dB finely.' )
             ip1db_dbm = input_pwr_m[-1]
             op1db_dbm = outpt_pwr_m[-1]
         
         input_pwr_m = np.array(input_pwr_m)
         outpt_pwr_m = np.array(outpt_pwr_m)
         h1_slope, h1_inter = search_mediane_for_slope(input_pwr_m, outpt_pwr_m, 1)
-        print('', h1_slope, h1_inter)
+        logger.info( f'<{self.__class__.__name__}> h1_slope: {h1_slope}, h1_inter: {h1_inter}' )
         # --------------------------------------------------------
     
         # --------------------------------------------------------
@@ -846,7 +848,7 @@ class RF_Abstract_Base_Component(ABC):
         if np.count_nonzero((np.abs(im3___power - (im3_slope * input_pwr_d + im3_inter)) < 1.))/len(input_pwr_d) > 5e-2:
             iip3_dbm = (gain_db - im3_inter) / 2
         else:
-            print("Error: Unable to characterize IP3 finely.")
+            logger.info("Error: Unable to characterize IP3 finely.")
             iip3_dbm = op1db_dbm + 14 - gain_db
         oip3_dbm  = iip3_dbm + gain_db
 
@@ -855,7 +857,7 @@ class RF_Abstract_Base_Component(ABC):
         if np.count_nonzero((np.abs(im2___power - (im2_slope * input_pwr_d + im2_inter)) < 1.))/len(input_pwr_d) > 5e-2:
             iip2_dbm = gain_db - im2_inter
         else:
-            print("Error: Unable to characterize IP2 finely.")
+            logger.info( f'<{self.__class__.__name__}> Error: Unable to characterize IP2 finely.' )
             iip2_dbm = iip3_dbm + 25
         oip2_dbm = iip2_dbm + gain_db if iip2_dbm is not None else None
         # --------------------------------------------------------
@@ -887,7 +889,7 @@ class RF_Abstract_Base_Component(ABC):
             plt.tight_layout()
     
             for var_name in ('gain_db', 'op1db_dbm', 'iip3_dbm', 'oip3_dbm', 'iip2_dbm', 'oip2_dbm'):
-                print('%s: '%(var_name), eval(var_name))
+                logger.info( f'<{self.__class__.__name__}> {var_name}: {eval(var_name)}' )
         # --------------------------------------------------------
         
         return gain_db, op1db_dbm, iip3_dbm, oip3_dbm, iip2_dbm, oip2_dbm
@@ -1186,12 +1188,12 @@ class RF_Abstract_Modelised_Component(RF_Abstract_Base_Component, ABC):
             freqs = np.concatenate((-freqs[freqs > 0][::-1], freqs[freqs >= 0]))
 
         if np.count_nonzero(freqs<0.) != np.count_nonzero(freqs>0.):
-            print(np.count_nonzero(freqs<0.), np.count_nonzero(freqs>0.))
-            print(freqs[freqs<0.], freqs[freqs>0.])
+            logger.info( f'<{self.__class__.__name__}> np.count_nonzero(freqs<0.), np.count_nonzero(freqs>0.): {np.count_nonzero(freqs<0.), np.count_nonzero(freqs>0.)}' )
+            logger.info( f'<{self.__class__.__name__}> freqs[freqs<0.], freqs[freqs>0.]: {freqs[freqs<0.], freqs[freqs>0.]}' )
             raise ValueError("Frequency-dependent parameters are not set correctly.")
 
         #for var_name in ('freqs', 'gains', 'nf__s', 'op1ds', 'iip3s', 'iip2s'):
-        #    print(var_name, eval(var_name))
+            #logger.info( f'<{self.__class__.__name__}> {var_name}: {eval(var_name)}' )
 
         # Get spectrums of the signals
         fftfreqs  = np.fft.fftfreq(signals.n_points, 1 / signals.sampling_rate)
@@ -1261,7 +1263,7 @@ class RF_Abstract_Modelised_Component(RF_Abstract_Base_Component, ABC):
         if op1ds.min() < self.iipx_threshold:
             spectrums = self.ft(np.abs(spectrums), op1ds * self.k_op1) * np.exp(1j * np.angle(spectrums))
 
-        #print('out:', voltage_to_dbm(np.abs(spectrums[:, idx_frtest])))
+        #logger.info( f'<{self.__class__.__name__}> out: {voltage_to_dbm(np.abs(spectrums[:, idx_frtest]))} dBm' )
 
         # Retrieve temporal signal
         signals.sig2d = np.real(np.fft.ifft( spectrums*len(fftfreqs), axis=1 ))
@@ -1319,7 +1321,7 @@ class RF_Modelised_Component(RF_Abstract_Modelised_Component):
                             ('nfs_db', (None, float, Iterable)), ('phases_rad', (None, float, Iterable)),
                             ('op1ds_dbm', (None, float, Iterable)), ('iip3s_dbm', (None, float, Iterable)), ('iip2s_dbm', (None, float, Iterable))):
             _convert = False
-            #print(_nm, type(eval(_nm)), eval(_nm))
+            #logger.info( f'<{self.__class__.__name__}> {_nm}, type: {type(eval(_nm))}, value: {eval(_nm)}' )
 
             for _typ in _typs:
                 if _typ is float:
@@ -1339,7 +1341,7 @@ class RF_Modelised_Component(RF_Abstract_Modelised_Component):
 
                 if _convert: break
 
-            #print('self.'+_nm, type(eval('self.'+_nm)), eval('self.'+_nm))
+            #logger.info( f'<{self.__class__.__name__}> {_nm}, type: {type(eval(_nm))}, value: {eval(_nm)}' )
 
             if not _convert:
                 raise TypeError(f"Invalid type for {self.__class__.__name__}.{_nm}: expected {tuple(_typs)}, got {type(eval(_nm))}")
@@ -1365,9 +1367,9 @@ class RF_Modelised_Component(RF_Abstract_Modelised_Component):
         self.iip2s = dbm_to_voltage(self.iip2s_dbm)
 
         #for var_name in ('self.freqs', 'self.gains', 'self.nf__s', 'self.op1ds', 'self.iip3s', 'self.iip2s'):
-        #    print(var_name, eval(var_name))
+            #logger.info( f'<{self.__class__.__name__}> {var_name}, {eval(var_name)}')
 
-    def get_rf_parameters_adapted_to_signals(self, signals: Signals, temp_kelvin: Optional[float] = None) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    def get_rf_parameters_adapted_to_signals(self, signals: Signals, temp_kelvin: Optional[float] = None) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         """Get frequency-dependent gains and noise figures for the signals.
         
         Args:
@@ -1411,7 +1413,7 @@ class RF_Cable(RF_Abstract_Modelised_Component):
         self.alpha = alpha
         self.insertion_losses_dB = insertion_losses_dB
 
-    def get_rf_parameters_adapted_to_signals(self, signals: Signals, temp_kelvin: Optional[float] = None) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    def get_rf_parameters_adapted_to_signals(self, signals: Signals, temp_kelvin: Optional[float] = None) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         """Get frequency-dependent gains and noise figures for the RF cable.
         
         Args:
@@ -1462,7 +1464,13 @@ class HighPassFilter(RF_Abstract_Modelised_Component):
         self.insertion_losses_dB = insertion_losses_dB
         self.gain_losses = gain_db_to_gain(-self.insertion_losses_dB)  # Convert insertion loss to linear gain
 
-    def get_rf_parameters_adapted_to_signals(self, signals: Signals, temp_kelvin: Optional[float] = None) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+        # -- Cache initialization to optimize performance on repeated calls
+        self._cache_ba_signature = None  # Tuple (order, cutoff_freq, sampling_rate)
+        self._cache_fr_signature = None  # Tuple (start, stop, length)
+        self._cache_ba           = None  # Coefficients b, a
+        self._cache_params       = None  # gains, gains_db, nf__s
+
+    def get_rf_parameters_adapted_to_signals(self, signals: Signals, temp_kelvin: Optional[float] = None) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         """Get frequency-dependent gains and noise figures for the high-pass filter.
         
         Args:
@@ -1470,21 +1478,254 @@ class HighPassFilter(RF_Abstract_Modelised_Component):
             temp_kelvin (Optional[float]): Temperature in Kelvin, defaults to instance temperature.
         
         Returns:
-            Tuple[np.ndarray, np.ndarray, np.ndarray]: Frequencies, gains, noise figures.
+            Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]: Frequencies, gains, noise figures, op1db, iip3, iip2.
         """
         temp_kelvin = temp_kelvin if temp_kelvin else self.temp_kelvin
 
         freqs = signals.freqs[signals.freqs >= 0]
 
-        # Design Butterworth high-pass filter
-        b, a = butter(self.order, self.cutoff_freq, btype='high', fs=signals.sampling_rate, output='ba')
-        w, h = freqz(b, a, worN=freqs, fs=signals.sampling_rate)
+        # -- Design Butterworth high-pass filter
+        #    Manage cache for filter coefficients (b, a) that depend solely on order, cutoff_freq, and sampling_rate
+        sampling_rate, sampling_factor = signals.sampling_rate, 1
+        while sampling_rate < self.cutoff_freq*2:
+            sampling_factor *= 2
+            sampling_rate   *= 2
 
-        gains    = h * self.gain_losses  # Apply insertion loss
-        gains_db = np.minimum(0., gain_to_gain_db(gains))  # Cap at 0 dB (passive device)
-        nf__s    = nf_db_to_nf(-gains_db)  # Noise figure based on loss
+        new_ba_signature = (self.order, self.cutoff_freq, sampling_rate)
+
+        if new_ba_signature != self._cache_ba_signature:
+            b, a = butter(self.order, self.cutoff_freq, btype='high', fs=sampling_rate, output='ba')
+
+            self._cache_ba_signature = new_ba_signature
+            self._cache_ba           = (b, a)
+            self._cache_params       = None  # Invalidate frequency response cache if coefficients change
+        else:
+            b, a = self._cache_ba
+
+        new_fr_signature = (float(freqs[0]), float(freqs[-1]), len(freqs))
+
+        if self._cache_params is None or new_fr_signature != self._cache_fr_signature:
+            logger.debug(f'<{self.__class__.__name__}> [{freqs[0]/1e9:.3f} GHz-{freqs[-1]/1e9:.3f} GHz], fc={self.cutoff_freq/1e9:.3f} GHz, fs={sampling_rate/1e9:.3f} GHz, order={self.order}, insertion_losses_dB={self.insertion_losses_dB} dB')
+            w, h     = freqz(b, a, worN=freqs, fs=sampling_rate)
+            gains    = h * self.gain_losses  # Apply insertion loss
+            gains_db = np.minimum(0., gain_to_gain_db(gains))  # Cap at 0 dB (passive device)
+            nf__s    = nf_db_to_nf(-gains_db)  # Noise figure based on loss
+
+            self._cache_fr_signature = new_fr_signature
+            self._cache_params = (gains, gains_db, nf__s)
+        else:
+            gains, gains_db, nf__s = self._cache_params
 
         return freqs, gains, nf__s, infs_like(freqs), infs_like(freqs), infs_like(freqs)  # No op1db, iip3, iip2 for passive device
+
+class LowPassFilter(RF_Abstract_Modelised_Component):
+    """
+    Class representing a low-pass filter with specified cutoff frequency and order.
+    
+    The filter is implemented as a Butterworth design, which provides maximally flat
+    passband response. Signals above the cutoff frequency are attenuated.
+    
+    Attributes:
+        cutoff_freq (float): Cutoff frequency in Hz (-3dB point).
+        order (int): Filter order (higher order = steeper roll-off).
+        q_factor (float): Quality factor (not used in Butterworth design).
+        insertion_losses_dB (float): Insertion losses in passband in dB.
+        gain_losses (float): Linear gain factor due to insertion losses.
+    """
+    
+    def __init__(self, cutoff_freq: float, order: int = 1, q_factor: float = 1, 
+                 insertion_losses_dB: float = 0, temp_kelvin: float = DEFAULT_TEMP_KELVIN) -> None:
+        """
+        Initialize the low-pass filter with specified characteristics.
+        
+        Args:
+            cutoff_freq (float): Cutoff frequency in Hz where attenuation is -3dB.
+            order (int): Filter order, defaults to 1. Higher orders provide steeper roll-off.
+            q_factor (float): Quality factor, defaults to 1 (not used in Butterworth design).
+            insertion_losses_dB (float): Insertion losses in dB, defaults to 0.
+            temp_kelvin (float): Temperature in Kelvin, defaults to 298.15 K.
+        """
+        self.temp_kelvin = temp_kelvin
+        self.cutoff_freq = cutoff_freq
+        self.order = order
+        self.q_factor = q_factor
+        self.insertion_losses_dB = insertion_losses_dB
+        self.gain_losses = gain_dBto_gain(-self.insertion_losses_dB)  # Convert insertion loss to linear gain
+        
+    def get_rf_parameters_adapted_to_signals(self, signals: Signals, temp_kelvin: Optional[float] = None) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        """
+        Get frequency-dependent gains and noise figures for the low-pass filter.
+        
+        Computes the filter response using Butterworth design and returns the
+        attenuation at each frequency bin of the input signals.
+        
+        Args:
+            signals (Signals): Input signals object.
+            temp_kelvin (Optional[float]): Temperature in Kelvin, defaults to instance temperature.
+            
+        Returns:
+            Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]: Frequencies, gains, noise figures, op1db, iip3, iip2.
+        """
+        temp_kelvin = temp_kelvin if temp_kelvin is not None else self.temp_kelvin
+        
+        freqs = signals.freqs[signals.freqs >= 0]  # Only positive frequencies
+        
+        # Design Butterworth low-pass filter
+        b, a = scipy.signal.butter(self.order, 2 * np.pi * self.cutoff_freq, btype='low', analog=True)
+        
+        # Compute frequency response
+        w, h = scipy.signal.freqs(b, a, worN=2 * np.pi * freqs)
+        
+        # Apply insertion losses to the filter response
+        gains = h * self.gain_losses
+        
+        # For passive filters, noise figure equals negative of gain in dB
+        gains_dB = gain_to_gaindB(np.abs(gains))
+        nfs = nfdB_to_nf(-gains_dB)
+        
+        return freqs, gains, nf__s, infs_like(freqs), infs_like(freqs), infs_like(freqs)  # No op1db, iip3, iip2 for passive device
+        
+    def process_signals(self, signals: Signals, temp_kelvin: Optional[float] = None) -> None:
+        """
+        Process signals by applying low-pass filtering and adding thermal noise.
+        
+        The filter attenuates frequency components above the cutoff frequency.
+        Thermal noise is added based on the noise figure of the filter.
+        
+        Args:
+            signals (Signals): Input signals object to process in-place.
+            temp_kelvin (Optional[float]): Temperature in Kelvin, defaults to instance temperature.
+        """
+        temp_kelvin = temp_kelvin if temp_kelvin is not None else self.temp_kelvin
+        
+        # Get filter characteristics adapted to signal frequencies
+        freqs, gains, nfs, op1ds, iip3s, iip2s = self.get_rf_parameters_adapted_to_signals(signals, temp_kelvin=temp_kelvin)
+        
+        # Apply filter gain to positive frequencies
+        signals.sig_2d[:, signals.freqs >= 0] *= gains
+        
+        # Apply conjugate to negative frequencies (maintain real signal in time domain)
+        signals.sig_2d[:, signals.freqs < 0] = np.conj(signals.sig_2d[:, signals.freqs > 0][:, ::-1])
+        
+        # Add thermal noise contribution from filter losses
+        signals.add_thermal_noise(temp_kelvin=temp_kelvin, nfs=nfs)
+
+
+class BandPassFilter(RF_Abstract_Modelised_Component):
+    """
+    Class representing a band-pass filter with specified center frequency and bandwidth.
+    
+    The filter is implemented as a Butterworth design, which provides maximally flat
+    passband response. Only signals within the passband are transmitted; frequencies
+    outside the band are attenuated.
+    
+    Attributes:
+        center_freq (float): Center frequency of passband in Hz.
+        bandwidth (float): Bandwidth of passband in Hz (-3dB bandwidth).
+        order (int): Filter order (higher order = steeper roll-off).
+        q_factor (float): Quality factor (not used in Butterworth design).
+        insertion_losses_dB (float): Insertion losses in passband in dB.
+        gain_losses (float): Linear gain factor due to insertion losses.
+        cutoff_low (float): Lower cutoff frequency in Hz.
+        cutoff_high (float): Upper cutoff frequency in Hz.
+    """
+    
+    def __init__(self, center_freq: float, bandwidth: float, order: int = 2, 
+                 q_factor: float = 1, insertion_losses_dB: float = 0, 
+                 temp_kelvin: float = DEFAULT_TEMP_KELVIN) -> None:
+        """
+        Initialize the band-pass filter with specified characteristics.
+        
+        The filter passband is defined by center frequency and bandwidth. The actual
+        cutoff frequencies are computed as:
+            f_low = center_freq - bandwidth/2
+            f_high = center_freq + bandwidth/2
+        
+        Args:
+            center_freq (float): Center frequency in Hz of the passband.
+            bandwidth (float): Bandwidth in Hz (distance between -3dB points).
+            order (int): Filter order, defaults to 2. Higher orders provide steeper roll-off.
+            q_factor (float): Quality factor, defaults to 1 (not used in Butterworth design).
+            insertion_losses_dB (float): Insertion losses in dB, defaults to 0.
+            temp_kelvin (float): Temperature in Kelvin, defaults to 298.15 K.
+        """
+        self.temp_kelvin = temp_kelvin
+        self.center_freq = center_freq
+        self.bandwidth = bandwidth
+        self.order = order
+        self.q_factor = q_factor
+        self.insertion_losses_dB = insertion_losses_dB
+        self.gain_losses = gain_dBto_gain(-self.insertion_losses_dB)  # Convert insertion loss to linear gain
+        
+        # Compute lower and upper cutoff frequencies
+        self.cutoff_low = center_freq - bandwidth / 2.0
+        self.cutoff_high = center_freq + bandwidth / 2.0
+        
+    def get_rf_parameters_adapted_to_signals(self, signals: Signals, temp_kelvin: Optional[float] = None) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """
+        Get frequency-dependent gains and noise figures for the band-pass filter.
+        
+        Computes the filter response using Butterworth design and returns the
+        attenuation at each frequency bin of the input signals.
+        
+        Args:
+            signals (Signals): Input signals object.
+            temp_kelvin (Optional[float]): Temperature in Kelvin, defaults to instance temperature.
+            
+        Returns:
+            Tuple[np.ndarray, np.ndarray, np.ndarray]: 
+                - Frequencies in Hz
+                - Linear gains (complex values including phase)
+                - Noise figures (linear scale)
+        """
+        temp_kelvin = temp_kelvin if temp_kelvin is not None else self.temp_kelvin
+        
+        freqs = signals.freqs[signals.freqs >= 0]  # Only positive frequencies
+        
+        # Design Butterworth band-pass filter
+        # Note: cutoff frequencies must be provided as [low, high]
+        b, a = scipy.signal.butter(self.order, 
+                                   [2 * np.pi * self.cutoff_low, 2 * np.pi * self.cutoff_high], 
+                                   btype='band', 
+                                   analog=True)
+        
+        # Compute frequency response
+        w, h = scipy.signal.freqs(b, a, worN=2 * np.pi * freqs)
+        
+        # Apply insertion losses to the filter response
+        gains = h * self.gain_losses
+        
+        # For passive filters, noise figure equals negative of gain in dB
+        gains_dB = gain_to_gaindB(np.abs(gains))
+        nfs = nfdB_to_nf(-gains_dB)
+        
+        return freqs, gains, nfs
+        
+    def process_signals(self, signals: Signals, temp_kelvin: Optional[float] = None) -> None:
+        """
+        Process signals by applying band-pass filtering and adding thermal noise.
+        
+        The filter only passes frequency components within the specified bandwidth
+        around the center frequency. Components outside this band are attenuated.
+        Thermal noise is added based on the noise figure of the filter.
+        
+        Args:
+            signals (Signals): Input signals object to process in-place.
+            temp_kelvin (Optional[float]): Temperature in Kelvin, defaults to instance temperature.
+        """
+        temp_kelvin = temp_kelvin if temp_kelvin is not None else self.temp_kelvin
+        
+        # Get filter characteristics adapted to signal frequencies
+        freqs, gains, nfs = self.get_rf_parameters_adapted_to_signals(signals, temp_kelvin=temp_kelvin)
+        
+        # Apply filter gain to positive frequencies
+        signals.sig_2d[:, signals.freqs >= 0] *= gains
+        
+        # Apply conjugate to negative frequencies (maintain real signal in time domain)
+        signals.sig_2d[:, signals.freqs < 0] = np.conj(signals.sig_2d[:, signals.freqs > 0][:, ::-1])
+        
+        # Add thermal noise contribution from filter losses
+        signals.add_thermal_noise(temp_kelvin=temp_kelvin, nfs=nfs)
 
 # ====================================================================================================
 # Antenna Component Class
@@ -1535,6 +1776,8 @@ class Antenna_Component(RF_Modelised_Component):
 
 def main() -> None:
     """Main function to demonstrate the usage of the RF modeling classes."""
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s-%(levelname)s-%(module)s-%(funcName)s: %(message)s')
+
     # Example usage of the classes
     # Create a signal with noise and tones
     signal = Signals(20e9, 100e6)  # fmax = 40 GHz, bin_width = 10 MHz (duration = 1/bin_width = 100 ns)
@@ -1544,7 +1787,7 @@ def main() -> None:
     signal.add_tone(17e9, -50, -pi / 3) # Add tone at 17 GHz, -50 dBm
 
     # Print RMS value
-    print(f"Initial RMS value: {signal.rms_dbm()} dBm")
+    logger.info( f"Initial RMS value: {signal.rms_dbm()} dBm" )
 
     # Plot temporal signal
     signal.plot_temporal(tmax=10e-9)
@@ -1559,7 +1802,7 @@ def main() -> None:
     amplifier.process(signal)
 
     # Print RMS value after amplification
-    print(f"RMS value after amplification: {signal.rms_dbm()} dBm")
+    logger.info( f"RMS value after amplification: {signal.rms_dbm()} dBm" )
 
     # Plot temporal signal after amplification
     signal.plot_temporal(tmax=10e-9)
@@ -1574,7 +1817,7 @@ def main() -> None:
     high_pass_filter.process(signal)
 
     # Print RMS value after filtering
-    print(f"RMS value after filtering: {signal.rms_dbm()} dBm")
+    logger.info(f"RMS value after filtering: {signal.rms_dbm()} dBm")
 
     # Plot temporal signal after filtering
     signal.plot_temporal(tmax=10e-9)
@@ -1595,7 +1838,9 @@ def main() -> None:
     chain = RF_chain(components)
 
     for component in components+[chain]:
-        print(f"\n=========== Assessing {component.__class__.__name__}")
+        logger.info( f"====================================================" )
+        logger.info( f"=========== Assessing {component.__class__.__name__}" )
+        logger.info( f"====================================================" )
         
         freqs, gains, phases, nf = component.assess_gain()
         plt.figure()
@@ -1605,9 +1850,8 @@ def main() -> None:
         plt.title(f'Gain vs Frequency for {component.__class__.__name__}')
         
         results = component.assess_ipx(freq_min=1e9, freq_max=10e9, fr_stp=1e9)
-        for freq, (gain_db, op1db_dbm, iip2_dbm, oip3_dbm) in results:
-            print(f"Frequency: {freq / 1e9} GHz, Gain: {gain_db} dB, OP1dB: {op1db_dbm} dBm, IIP2: {iip2_dbm} dBm, OIP3: {oip3_dbm} dBm")
-    
+        for freq, gain_db, op1db_dbm, iip3_dbm, oip3_dbm, iip2_dbm, oip2_dbm in results.T:
+            logger.info( f"Frequency: {freq / 1e9} GHz, Gain: {gain_db} dB, OP1dB: {op1db_dbm} dBm, IIP2: {iip2_dbm} dBm, OIP3: {oip3_dbm} dBm" )
     plt.show()  # Display all plots
 
 if __name__ == '__main__':

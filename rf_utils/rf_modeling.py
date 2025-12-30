@@ -23,7 +23,7 @@ License: MIT
 
 __version__ = "0.1"
 
-import logging
+import logging, traceback
 from typing import Optional, Tuple, Union
 
 import copy
@@ -116,6 +116,10 @@ def gain_to_gain_db(gain: Union[float, np.ndarray]) -> Union[float, np.ndarray]:
     Returns:
         Union[float, np.ndarray]: Gain in dB.
     """
+    if np.any(gain == 0):
+        #logger.debug( f'Gain value contains zero(s), {''.join(traceback.format_list(traceback.extract_stack()))}' )
+        gain = gain + 1e-100
+    
     return 20 * np.log10(np.abs(gain))  # dB = 20 * log10(|G|) for voltage gain
 
 def nf_db_to_nf(nf_db: float) -> float:
@@ -173,6 +177,10 @@ def watts_to_dbm(power_watts: Union[float, np.ndarray]) -> Union[float, np.ndarr
     Returns:
         Union[float, np.ndarray]: Power in dBm.
     """
+    if np.any(power_watts == 0):
+        #logger.debug( f'Gain value contains zero(s), {''.join(traceback.format_list(traceback.extract_stack()))}' )
+        power_watts = power_watts + 1e-100
+
     return 10 * np.log10(power_watts * 1000)  # dBm = 10 * log10(P * 1000) to convert watts to milliwatts
 
 def voltage_to_dbm(voltage: Union[float, np.ndarray], imped_ohms: float = DEFAULT_IMPED_OHMS) -> Union[float, np.ndarray]:
@@ -404,16 +412,18 @@ class Signals:
             imped_ohms (float): Impedance in ohms, defaults to 50 ohms.
             temp_kelvin (float): Temperature in Kelvin, defaults to 298.15 K (25°C).
         """
-        self.fmax = fmax
-        self.bin_width = bin_width
-        self.imped_ohms = imped_ohms
+        self.fmax        = fmax
+        self.bin_width   = bin_width
+        self.imped_ohms  = imped_ohms
         self.temp_kelvin = temp_kelvin
-        self.n_windows = n_windows
+        self.n_windows   = n_windows
 
-        self.duration = 1 / bin_width  # Duration is inverse of bin width
-        self.n_points = int(np.ceil(2.2 * fmax / bin_width))  # Ensure sufficient sampling
+        self.duration      = 1 / bin_width  # Duration is inverse of bin width
+        self.n_points      = int(np.ceil(2.2 * fmax / bin_width))  # Ensure sufficient sampling
         self.sampling_rate = self.n_points / self.duration  # Sampling rate in Hz
-        self.freqs = np.fft.fftfreq(self.n_points, 1 / self.sampling_rate)  # Frequency bins
+        self.freqs         = np.fft.fftfreq(self.n_points, 1 / self.sampling_rate)  # Frequency bins
+
+        logger.debug(f'<{self.__class__.__name__}> fmax={self.fmax/1e9:.3f} GHz, bin_width={self.bin_width/1e6:.3f} MHz, sampling_rate={self.sampling_rate/1e9:.3f} GHz, n_points={self.n_points}, duration={self.duration*1e6:.3f} µs')
 
         self.bw_hz = self.sampling_rate / 2  # Nyquist bandwidth
 
@@ -733,7 +743,6 @@ class RF_Abstract_Base_Component(ABC):
             Tuple[float, float, float, float]: Gain (dB), OP1dB (dBm), IIP2 (dBm), OIP3 (dBm).
         """
         logger.info( f'<{self.__class__.__name__}> ## Assess the IP2 and IP3 (Intercept Point of order 2 and 3) of the RF component.' )
-        logger.info( f'<{self.__class__.__name__}>   -- Central frequency: {fc / 1e9:.3f} GHz, df: {df / 1e6:.3f} MHz' )
         
         # --------------------------------------------------------
         fmax = 3. * fc
@@ -755,10 +764,10 @@ class RF_Abstract_Base_Component(ABC):
         f1pf2 = f1 + f2
         df1mf2 = 2 * f1 - f2
         df2mf1 = 2 * f2 - f1
-        logger.info( f'<{self.__class__.__name__}> F1: {f1 / 1e9:.3f} GHz, F2: {f2 / 1e9:.3f} GHz' )
+        logger.info( f'<{self.__class__.__name__}>    Central frequency: {fc / 1e9:.3f} GHz, df: {df / 1e6:.3f} MHz, F1: {f1 / 1e9:.3f} GHz, F2: {f2 / 1e9:.3f} GHz' )
         
         # Indexes of frequencies in spectrum
-        signals = Signals(fmax, bin_width, n_windows=n_windows, imped_ohms=50, temp_kelvin=temp_kelvin)
+        signals = Signals(fmax, bin_width, n_windows=1, imped_ohms=50, temp_kelvin=temp_kelvin)
 
         arg_frq_fc = signals.get_arg_freq(fc)
         arg_frq_f1 = signals.get_arg_freq(f1)
@@ -1490,7 +1499,7 @@ class HighPassFilter(RF_Abstract_Modelised_Component):
         while sampling_rate < self.cutoff_freq*2:
             sampling_factor *= 2
             sampling_rate   *= 2
-
+        
         new_ba_signature = (self.order, self.cutoff_freq, sampling_rate)
 
         if new_ba_signature != self._cache_ba_signature:
@@ -1505,7 +1514,8 @@ class HighPassFilter(RF_Abstract_Modelised_Component):
         new_fr_signature = (float(freqs[0]), float(freqs[-1]), len(freqs))
 
         if self._cache_params is None or new_fr_signature != self._cache_fr_signature:
-            logger.debug(f'<{self.__class__.__name__}> [{freqs[0]/1e9:.3f} GHz-{freqs[-1]/1e9:.3f} GHz], fc={self.cutoff_freq/1e9:.3f} GHz, fs={sampling_rate/1e9:.3f} GHz, order={self.order}, insertion_losses_dB={self.insertion_losses_dB} dB')
+            logger.debug(f'<{self.__class__.__name__}> signals.sampling_rate={signals.sampling_rate/1e9:.3f} GHz, sampling_rate={sampling_rate/1e9:.3f} GHz')
+            logger.debug(f'<{self.__class__.__name__}> [{freqs[0]/1e9:.3f} GHz-{freqs[-1]/1e9:.3f} GHz], fc={self.cutoff_freq/1e9:.3f} GHz, sampling_rate={sampling_rate/1e9:.3f} GHz, order={self.order}, insertion_losses_dB={self.insertion_losses_dB} dB')
             w, h     = freqz(b, a, worN=freqs, fs=sampling_rate)
             gains    = h * self.gain_losses  # Apply insertion loss
             gains_db = np.minimum(0., gain_to_gain_db(gains))  # Cap at 0 dB (passive device)
@@ -1837,7 +1847,8 @@ def main() -> None:
 
     chain = RF_chain(components)
 
-    for component in components+[chain]:
+    #for component in components+[chain]:
+    for component in [components[1], chain]:
         logger.info( f"====================================================" )
         logger.info( f"=========== Assessing {component.__class__.__name__}" )
         logger.info( f"====================================================" )

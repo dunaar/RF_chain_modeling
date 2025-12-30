@@ -178,7 +178,7 @@ def watts_to_dbm(power_watts: Union[float, np.ndarray]) -> Union[float, np.ndarr
         Union[float, np.ndarray]: Power in dBm.
     """
     if np.any(power_watts == 0):
-        #logger.debug( f'Gain value contains zero(s), {''.join(traceback.format_list(traceback.extract_stack()))}' )
+        #logger.debug( f'Power value contains zero(s), {''.join(traceback.format_list(traceback.extract_stack()))}' )
         power_watts = power_watts + 1e-100
 
     return 10 * np.log10(power_watts * 1000)  # dBm = 10 * log10(P * 1000) to convert watts to milliwatts

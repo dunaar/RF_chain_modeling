@@ -213,17 +213,17 @@ def calculate_rms_dbm(signal: np.ndarray) -> float:
     """
     return float( voltage_to_dbm(calculate_rms(signal)) )  # Convert RMS voltage to dBm
 
-def thermal_noise_power_dbm(temp_kelvin: float, bw_hz: float) -> float:
+def thermal_noise_power_dbm(temp_kelvin: float, bandwidth: float) -> float:
     """Calculate thermal noise power in dBm based on temperature and bandwidth.
     
     Args:
         temp_kelvin (float): Temperature in Kelvin.
-        bw_hz (float): Bandwidth in Hertz.
+        bandwidth (float): Bandwidth in Hertz.
     
     Returns:
         float: Thermal noise power in dBm.
     """
-    return watts_to_dbm(K_B * temp_kelvin * bw_hz)  # P = K_B * T * B, then convert to dBm
+    return watts_to_dbm(K_B * temp_kelvin * bandwidth)  # P = K_B * T * B, then convert to dBm
 
 # ====================================================================================================
 # Signal Processing Functions
@@ -388,7 +388,7 @@ class Signals:
         n_points (int): Number of samples per window.
         sampling_rate (float): Sampling rate in Hz.
         freqs (np.ndarray): Frequency bins for FFT.
-        bw_hz (float): Bandwidth in Hz (half of sampling rate).
+        bandwidth (float): Nyquist Bandwidth in Hz (half of sampling rate).
         shape (Tuple[int, int]): Shape of the signal array (n_windows, n_points).
         time (np.ndarray): Time array for each window.
         sig2d (np.ndarray): 2D array of signals (windows x samples).
@@ -419,9 +419,9 @@ class Signals:
         self.sampling_rate = self.n_points / self.duration  # Sampling rate in Hz
         self.freqs         = np.fft.fftfreq(self.n_points, 1 / self.sampling_rate)  # Frequency bins
 
-        logger.debug(f'<{self.__class__.__name__}> fmax={self.fmax/1e9:.3f} GHz, bin_width={self.bin_width/1e6:.3f} MHz, sampling_rate={self.sampling_rate/1e9:.3f} GHz, n_points={self.n_points}, duration={self.duration*1e6:.3f} µs')
+        self.bandwidth = self.sampling_rate / 2  # Nyquist bandwidth
 
-        self.bw_hz = self.sampling_rate / 2  # Nyquist bandwidth
+        logger.debug(f'<{self.__class__.__name__}> fmax={self.fmax/1e9:.3f} GHz, bin_width={self.bin_width/1e6:.3f} MHz, bandwidth={self.bandwidth/1e6:.3f} MHz, sampling_rate={self.sampling_rate/1e9:.3f} GHz, n_points={self.n_points}, duration={self.duration*1e6:.3f} µs')
 
         self.shape = (self.n_windows, self.n_points)  # Shape of signal array
 
@@ -567,7 +567,7 @@ class Signals:
             temp_kelvin (Optional[float]): Temperature in Kelvin, defaults to instance temperature.
         """
         temp_kelvin = temp_kelvin if temp_kelvin is not None else self.temp_kelvin
-        noise_power_dbm = thermal_noise_power_dbm(temp_kelvin, self.bw_hz)
+        noise_power_dbm = thermal_noise_power_dbm(temp_kelvin, self.bandwidth)
         self.add_noise(noise_power_dbm)
 
     def rms_dbm(self) -> float:
@@ -598,6 +598,11 @@ class Signals:
             ylabel_power (str): Y-axis label for power spectrum, defaults to "Power (dBm)".
             ylabel_phase (str): Y-axis label for phase spectrum, defaults to "Phase (radians)".
         """
+        exp3      = min(3, int(np.log10(self.bin_width)/3.))
+        bin_width = self.bin_width / (10**(3*exp3))   # Scale bin width for unit representation
+        unit      = ["Hz", "kHz", "MHz", "GHz"][exp3] # Determine unit
+
+        title_power += f" with Resolution Bandwidth (bin width): {bin_width:.1f} {unit}"
         plot_signal_spectrum(self.freqs, self.spects_power, self.spects_phase, title_power, title_phase, ylabel_power, ylabel_phase)
 
 # ====================================================================================================
@@ -969,7 +974,7 @@ class RF_chain(RF_Abstract_Base_Component):
 # ====================================================================================================
 # RF Modelised Component Class
 # ====================================================================================================
-switch_print = True
+switch_print = False
 class RF_Abstract_Modelised_Component(RF_Abstract_Base_Component, ABC):
     """Abstract base class representing a modelised RF component with frequency-dependent characteristics.
     
@@ -1101,7 +1106,7 @@ class RF_Abstract_Modelised_Component(RF_Abstract_Base_Component, ABC):
             plt.legend()
 
         # Apply noise figures in frequency domain
-        noise = Signals.generate_noise_dbm(signals.shape, thermal_noise_power_dbm(temp_kelvin, signals.bw_hz), signals.imped_ohms)
+        noise = Signals.generate_noise_dbm(signals.shape, thermal_noise_power_dbm(temp_kelvin, signals.bandwidth), signals.imped_ohms)
         spectrums += nf__s * np.fft.fft(noise, axis=1) / len(fftfreqs)
 
         # IIP3 processing
@@ -1276,7 +1281,7 @@ def main() -> None:
     # Example usage of the classes
     # Create a signal with noise and tones
     signal = Signals(20e9, 100e6)  # fmax = 40 GHz, bin_width = 10 MHz (duration = 1/bin_width = 100 ns)
-    signal.add_noise(thermal_noise_power_dbm(signal.temp_kelvin, signal.bw_hz))  # Add thermal noise
+    signal.add_noise(thermal_noise_power_dbm(signal.temp_kelvin, signal.bandwidth))  # Add thermal noise
     signal.add_tone(3e9, 0, 0)          # Add tone at 3 GHz, 0 dBm
     signal.add_tone(11e9, -55, pi / 4)  # Add tone at 11 GHz, -55 dBm
     signal.add_tone(17e9, -50, -pi / 3) # Add tone at 17 GHz, -50 dBm

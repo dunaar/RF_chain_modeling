@@ -32,7 +32,7 @@ antenna       = Antenna_Component(freqs=(1e9, 20e9), gains_db=(3., 7.))
 
 hp_filter     = HighPass_Filter(cutoff_freq=6e9, order=5, q_factor=0.7)
 
-amplifier_lna = Simple_Amplifier(gain_db=16, op1db_dbm=24., oip3_dbm=30., nf_db=3)
+amplifier_lna = Simple_Amplifier(gain_db=16, oip3_dbm=30., nf_db=3)
 
 attenuator    = Attenuator(att_db=5)
 
@@ -75,20 +75,26 @@ def main() -> None:
     # ---------------------------------------------------------------
     # Example usage of the classes
     # Create a signal with noise and tones
-    signal = Signals(20e9, 100e6)  # fmax = 40 GHz, bin_width = 10 MHz (duration = 1/bin_width = 100 ns)
-    signal.add_noise(thermal_noise_power_dbm(signal.temp_kelvin, signal.bw_hz))  # Add thermal noise
+    signal = Signals(20e9, 100e6)  # fmax = 40 GHz, bin_width = 100 MHz (duration of the time domain = 1/bin_width = 10 ns)
+
     signal.add_tone(3e9, 0, 0)          # Add tone at 3 GHz, 0 dBm
     signal.add_tone(11e9, -55, pi / 4)  # Add tone at 11 GHz, -55 dBm
     signal.add_tone(17e9, -50, -pi / 3) # Add tone at 17 GHz, -50 dBm
+
+    # /!\ As the first compnent in the chain is antenna, no thermal noise is added before it
+    #     With an antenna, the thermal noise is added by the component itself after signal processing it.
+    #     -> See Antenna_Component class documentation for more details (RF_chain_modeling.rf_utils.rf_essential_components.Antenna_Component).
+    # -> Uncomment the following line if the first component is not an antenna, for instance at antenna port before LNA
+    # signal.add_noise(thermal_noise_power_dbm(signal.temp_kelvin, signal.bw_hz))  # Add thermal noise
 
     # Print RMS value
     logger.info( f"Initial RMS value: {signal.rms_dbm()} dBm" )
 
     # Plot temporal signal
-    signal.plot_temporal(tmax=10e-9)
+    signal.plot_temporal(tmax=10e-9, title="Initial Temporal Signal")
 
     # Plot spectrum
-    signal.plot_spectrum()
+    signal.plot_spectrum(title_power="Initial Power Spectrum", title_phase="Initial Phase Spectrum")
 
     # Process the signal through the RF chain
     chain.process_signals(signal)
@@ -97,10 +103,10 @@ def main() -> None:
     logger.info( f"RMS value after chain: {signal.rms_dbm()} dBm" )
 
     # Plot temporal signal after chain processing
-    signal.plot_temporal(tmax=10e-9)
+    signal.plot_temporal(tmax=10e-9, title="Output Temporal Signal")
 
     # Plot spectrum after chain processing
-    signal.plot_spectrum()
+    signal.plot_spectrum(title_power="Output Power Spectrum", title_phase="Output Phase Spectrum")
 
     plt.show()  # Display all plots
 

@@ -74,7 +74,7 @@ class Attenuator(RF_Abstract_Base_Component):
         temp_kelvin = temp_kelvin if temp_kelvin is not None else self.temp_kelvin
 
         # Generate thermal noise based on temperature and bandwidth
-        noise = Signals.generate_noise_dbm(signals.shape, thermal_noise_power_dbm(temp_kelvin, signals.bw_hz), signals.imped_ohms)
+        noise = Signals.generate_noise_dbm(signals.shape, thermal_noise_power_dbm(temp_kelvin, signals.bandwidth), signals.imped_ohms)
         signals.sig2d += self.nf * noise  # Add noise contribution
         signals.sig2d *= self.gain  # Apply attenuation
 
@@ -141,7 +141,7 @@ class Simple_Amplifier(RF_Abstract_Base_Component):
         temp_kelvin = temp_kelvin if temp_kelvin is not None else self.temp_kelvin
 
         # Add thermal noise
-        noise = Signals.generate_noise_dbm(signals.shape, thermal_noise_power_dbm(temp_kelvin, signals.bw_hz), signals.imped_ohms)
+        noise = Signals.generate_noise_dbm(signals.shape, thermal_noise_power_dbm(temp_kelvin, signals.bandwidth), signals.imped_ohms)
         signals.sig2d += self.nf * noise
 
         s   = signals.sig2d
@@ -409,6 +409,13 @@ class BandPass_Filter(RF_Filter):
 # ====================================================================================================
 class Antenna_Component(RF_Modelised_Component):
     '''Class representing an antenna with frequency-dependent gain and phase.
+       !!! With an antenna, the thermal noise of the incident signal received in the front of the antenna (dBmi)
+           comes from the transmitter before free-space propagation.
+           Considering a very strong attenuation of the signal due to free space propagation,
+           we can assume that the incident signal is noise-free.
+           However, if the signal has to include thermal noise, consider that the thermal noise is emitted by the transmitter,
+           and must be attenuated by free space propagation.
+
     
     Attributes:
         temp_kelvin (float): Temperature in Kelvin.
@@ -444,7 +451,7 @@ class Antenna_Component(RF_Modelised_Component):
         temp_kelvin = temp_kelvin if temp_kelvin is not None else self.temp_kelvin
         super().process_signals(signals, temp_kelvin)
 
-        signals.sig2d += Signals.generate_noise_dbm(signals.shape, thermal_noise_power_dbm(temp_kelvin, signals.bw_hz))  # Add thermal noise
+        signals.sig2d += Signals.generate_noise_dbm(signals.shape, thermal_noise_power_dbm(temp_kelvin, signals.bandwidth))  # Add thermal noise
 
 # ====================================================================================================
 # Main Execution
@@ -456,7 +463,7 @@ def main() -> None:
     # Example usage of the classes
     # Create a signal with noise and tones
     signal = Signals(20e9, 100e6)  # fmax = 40 GHz, bin_width = 10 MHz (duration = 1/bin_width = 100 ns)
-    signal.add_noise(thermal_noise_power_dbm(signal.temp_kelvin, signal.bw_hz))  # Add thermal noise
+    signal.add_noise(thermal_noise_power_dbm(signal.temp_kelvin, signal.bandwidth))  # Add thermal noise
     signal.add_tone(3e9, 0, 0)          # Add tone at 3 GHz, 0 dBm
     signal.add_tone(11e9, -55, pi / 4)  # Add tone at 11 GHz, -55 dBm
     signal.add_tone(17e9, -50, -pi / 3) # Add tone at 17 GHz, -50 dBm

@@ -1,4 +1,5 @@
 # RF Chain Modeling
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.18145792.svg)](https://doi.org/10.5281/zenodo.18145792)
 
 **RF Signal Simulation and Analysis Framework**
 

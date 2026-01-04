@@ -84,3 +84,10 @@ This project is licensed under the **MIT License**. See the `LICENSE` file for d
 
 **Author:** Pessel Arnaud
 **Version:** 0.1 (2026-01-03)
+
+## Citing
+
+If you use this software in your research, please cite it using the following DOI:
+
+> Pessel, A. (2026). RF_chain_modeling (v0.1.0-beta.1). Zenodo. https://doi.org/10.5281/zenodo.18145792
+

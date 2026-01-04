@@ -4,7 +4,10 @@ authors:
   - family-names: "Pessel"
     given-names: "Arnaud"
 title: "RF_chain_modeling"
-version: 0.1.0-beta.1
+version: 0.1.0-beta.2
+identifiers:
+  - type: doi
+    value: 10.5281/zenodo.18145792
 date-released: 2026-01-03
 url: "https://github.com/dunaar/RF_chain_modeling"
 keywords:

@@ -405,6 +405,35 @@ class BandPass_Filter(RF_Filter):
                          insertion_losses_dB=insertion_losses_dB, temp_kelvin=temp_kelvin)
 
 # ====================================================================================================
+# RF slope equalizer Class
+# ====================================================================================================
+class RF_slope_equalizer(RF_Abstract_Modelised_Component):
+    def __init__(self, freq1: float, gain_db_at_freq1: float, freq2: float, gain_db_at_freq2: float, temp_kelvin: float = DEFAULT_TEMP_KELVIN) -> None:
+        self.temp_kelvin             = temp_kelvin
+
+        # -- Not used, just to keep attributes info
+        self.freq1            = freq1
+        self.gain_db_at_freq1 = gain_db_at_freq1
+        
+        self.freq2            = freq2
+        self.gain_db_at_freq2 = gain_db_at_freq2
+
+        # -- gains_db(f) = ax + b
+        self.a  =  (gain_db_at_freq2 - gain_db_at_freq1)/(freq2 - freq1)
+        self.b  = -(gain_db_at_freq2*freq1 - gain_db_at_freq1*freq2)/(freq2 - freq1)
+
+    def get_rf_parameters_adapted_to_signals(self, signals, temp_kelvin=None):
+        temp_kelvin = temp_kelvin if temp_kelvin else self.temp_kelvin
+
+        freqs    = signals.freqs[signals.freqs >= 0]
+        gains_db = self.a * freqs + self.b  # Frequency-dependent loss
+        gains    = gain_db_to_gain(gains_db)
+        nf__s    = nf_db_to_nf(-gains_db)  # Noise figure equals negative gain for passive device
+
+        return freqs, gains, nf__s, infs_like(freqs), infs_like(freqs), infs_like(freqs)  # No op1db, iip3, iip2 for passive device
+
+
+# ====================================================================================================
 # Antenna Component Class
 # ====================================================================================================
 class Antenna_Component(RF_Modelised_Component):

@@ -1,5 +1,11 @@
 # RF Chain Modeling
-[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.18145791.svg)](https://doi.org/10.5281/zenodo.18145791)
+[![DOI](https://img.shields.io/badge/DOI-10.5281%2Fzenodo.18145791-blue)](https://doi.org/10.5281/zenodo.18145791)
+
+![Python](https://img.shields.io/badge/python-3.8%2B-blue?logo=python&logoColor=white)
+![NumPy](https://img.shields.io/badge/numpy-%23013243.svg?logo=numpy&logoColor=white)
+![SciPy](https://img.shields.io/badge/SciPy-%230C55A5.svg?logo=scipy&logoColor=white)
+![Matplotlib](https://img.shields.io/badge/Matplotlib-%23ffffff.svg?logo=matplotlib&logoColor=black)
+![License](https://img.shields.io/github/license/dunaar/RF_chain_modeling)
 
 **RF Signal Simulation and Analysis Framework**
 

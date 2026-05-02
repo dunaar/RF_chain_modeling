@@ -1,15 +1,20 @@
 # File: csv_data_table.py
 # Author: Pessel Arnaud
 # Date: 2025-03-14
-# Version: 1.0
 # Description: This module defines the CSVDataTable class for reading, processing, and writing CSV files.
 #              It includes functionality for unit conversion and handling missing values through extrapolation.
 
 # Import necessary libraries
+import logging
+
 import numpy as np
 from scipy.interpolate import UnivariateSpline
 from scipy.optimize import minimize
+
 from ..rf_utils.rf_modeling import RF_Modelised_Component
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 """
 CSVDataTable Module
@@ -47,15 +52,14 @@ class CSVDataTable(object):
     }
 
     def __init__(self, filepath=None, delim_field='\t', multi_df=False, delim_decim='.', delim_cmt='#'):
-        """
-        Initialize the CSVDataTable object.
+        """Initialize the CSVDataTable.
 
-        Parameters:
-        - filepath:    Path to the CSV file to read.
-        - delim_field: Delimiter for fields in the CSV file.
-        - multi_df:    Flag for handling multiple delimiters.
-        - delim_decim: Decimal delimiter in the CSV file.
-        - delim_cmt:   Comment delimiter in the CSV file.
+        Args:
+            filepath: Optional path to the CSV file to read upon initialization.
+            delim_field: Delimiter for fields.
+            multi_df: Flag for handling multiple delimiters. Defaults to False.
+            delim_decim: Decimal delimiter. Defaults to '.'.
+            delim_cmt: Comment delimiter. Defaults to '#'.
         """
         self.comments = []    # Store comments from the CSV file
         self.titles   = []    # Store column titles
@@ -69,8 +73,7 @@ class CSVDataTable(object):
 
     @staticmethod
     def convert_unit(unit):
-        """
-        Convert a unit to its standard form using a predefined dictionary.
+        """Convert a unit to its standard form using a predefined dictionary.
 
         Parameters:
         - unit: The unit to convert.
@@ -81,8 +84,7 @@ class CSVDataTable(object):
         return CSVDataTable.units_conversion.get(unit.lower(), (1., unit))
 
     def extrapolate_nan(self, title_ref, title_tgt=None):
-        """
-        Extrapolate NaN values using linear interpolation based on a reference column.
+        """Extrapolate NaN values using linear interpolation based on a reference column.
         Uses numpy.interp for simple and robust linear interpolation/extrapolation.
 
         Parameters:
@@ -107,8 +109,7 @@ class CSVDataTable(object):
                     )
 
     def extrapolate_nan_from_others(self, title_tgt):
-        """
-        Reconstructs missing values (NaNs) in a reference column (e.g., X-axis, Time, Frequency)
+        """Reconstructs missing values (NaNs) in a reference column (e.g., X-axis, Time, Frequency)
         by solving an inverse problem using trends from all other available columns.
 
         Algorithm:
@@ -174,8 +175,7 @@ class CSVDataTable(object):
                 tgt_data[idx] = res.x[0]
 
     def read_csv(self, filepath, delim_field='\t', multi_df=False, delim_decim='.', delim_cmt='#'):
-        """
-        Read a CSV file and store its contents.
+        """Read a CSV file and store its contents.
 
         Parameters:
         - filepath:    Path to the CSV file.
@@ -228,8 +228,7 @@ class CSVDataTable(object):
 
     @staticmethod
     def _split_line(line_content, delim_field, multi_df):
-        """
-        Split a line into fields based on the delimiter.
+        """Split a line into fields based on the delimiter.
 
         Parameters:
         - line_content: The content of the line.
@@ -244,8 +243,7 @@ class CSVDataTable(object):
 
     @staticmethod
     def _extract_title_unit(field):
-        """
-        Extract the title and unit from a field header like 'freq(Hz)' or 'gain(dB)'.
+        """Extract the title and unit from a field header like 'freq(Hz)' or 'gain(dB)'.
 
         Parameters:
         - field: The field content.
@@ -260,8 +258,7 @@ class CSVDataTable(object):
         return title, unit
 
     def _make_unique_title(self, title):
-        """
-        Ensure the title is unique by appending a counter if necessary.
+        """Ensure the title is unique by appending a counter if necessary.
 
         Parameters:
         - title: The original title.
@@ -277,8 +274,7 @@ class CSVDataTable(object):
         return unique_title
 
     def _extract_value_from_field(self, fields, idx_fld, delim_decim, idx_line, filepath, line):
-        """
-        Extract a value from a field and handle conversion errors gracefully.
+        """Extract a value from a field and handle conversion errors gracefully.
 
         Parameters:
         - fields:      List of fields from the current line.
@@ -296,9 +292,9 @@ class CSVDataTable(object):
             try:
                 return float(field_value.replace(delim_decim, '.'))
             except ValueError:
-                print(f"Error! File <{filepath}>, line {idx_line + 1:03d}, field {idx_fld + 1:02d}: bad conversion")
-                print(f"{line.strip()}")
-                print(f"<{field_value}>")
+                logger.warning("Bad conversion in file '%s', line %3d, field %2d: could not convert %r to float.\n  Raw line: %s",
+                                filepath, idx_line, idx_fld, field_value, line.strip())
+
                 return np.nan
         else:
             print(f"Error! File <{filepath}>, line {idx_line + 1:03d}, field {idx_fld + 1:02d}: missing values")
@@ -306,8 +302,7 @@ class CSVDataTable(object):
             return np.nan
 
     def _finalize_data_structure(self, temp_data):
-        """
-        Finalize the data structure by converting lists to a structured numpy array,
+        """Finalize the data structure by converting lists to a structured numpy array,
         and applying unit conversions.
 
         Parameters:
@@ -321,14 +316,13 @@ class CSVDataTable(object):
             self.data[title]  = factor * np.array(temp_data[title])
 
     def write_csv(self, filepath, delim_field='\t', delim_decim='.', delim_cmt='#'):
-        """
-        Write the data to a CSV file, including comments and attributes.
+        """Write the object's data to a CSV file.
 
-        Parameters:
-        - filepath:    Path to the output CSV file.
-        - delim_field: Delimiter for fields.
-        - delim_decim: Decimal delimiter.
-        - delim_cmt:   Comment delimiter.
+        Args:
+            filepath: Path where the CSV file will be saved.
+            delim_field: Delimiter for fields in the output file. Defaults to '\\t'.
+            delim_decim: Decimal delimiter for float conversion. Defaults to '.'.
+            write_header: Whether to include the header row. Defaults to True.
         """
         with open(filepath, 'w') as file:
             # Write comments
@@ -446,16 +440,17 @@ nan\t4.0\t5.0
     with open(sample_file_path, 'w') as sample_file:
         sample_file.write(sample_csv_content)
 
-    print("Reading CSV data from sample.csv...")
+    logger.info("Reading CSV data from sample.csv...")
     csv_data_table_obj = CSVDataTable(filepath=sample_file_path)
-    print(csv_data_table_obj)
+    logger.info("%s", csv_data_table_obj)
 
     if 'freq' in csv_data_table_obj.titles:
         csv_data_table_obj.extrapolate_nan('freq')
-        print("Extrapolation de toutes les colonnes sauf 'freq' — OK")
+        logger.info("Extrapolation of all columns except freq: OK")
 
     output_file_path = "processed_sample.csv"
     csv_data_table_obj.write_csv(output_file_path)
-    print(f"\nFichier traité écrit dans : {output_file_path}")
+    logger.info("Written to %s", output_file_path)
+
     with open(output_file_path, 'r') as f:
-        print(f.read())
+        logger.info("Contents of %s:\n%s", output_file_path, f.read())

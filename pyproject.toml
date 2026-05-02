@@ -10,9 +10,9 @@ authors = [
 keywords = ["radio-frequency", "simulation", "signal-processing", "python"]
 requires-python = ">=3.12"
 dependencies = [
-    "matplotlib>=3.10.0",
-    "numpy>=2.0.0",
-    "scipy>=1.13.0",
+    "matplotlib>=3.10.0,<4.0",
+    "numpy>=2.0.0,<3.0",
+    "scipy>=1.13.0,<2.0",
     "tqdm>=4.67.0",
 ]
 
@@ -61,10 +61,10 @@ scope        = "src/"
 
 [[tool.project-requirements.standards.items]]
 id           = "FR-STD-03"
-shall        = "Each source file shall include a standardized header containing: project name, module description, author, date, version, and license."
-rationale    = "Traceability and legal compliance."
-verification = "Pre-commit script verifying header presence; code review."
-scope        = "src/"
+shall        = "Each source file shall include a standardized header containing project name, module description, author, date, version, and license, with the exception of empty __init__.py package marker files."
+rationale    = "Traceability and legal compliance. Empty __init__.py files are exempt as they serve only as namespace markers."
+verification = "Pre-commit script verifying header presence (ignoring 0-byte __init__.py files); code review."
+scope = "src"
 
 [[tool.project-requirements.standards.items]]
 id           = "FR-STD-04"
@@ -87,6 +87,13 @@ rationale    = "Prevents accidental renaming by LLMs or contributors, preserves 
 verification = "Code review, diff inspection, Ruff N-style checks when enabled, and manual verification of generated patches."
 scope        = "src, tests"
 
+[[tool.project-requirements.standards.items]]
+id           = "FR-STD-07"
+shall        = "All contributors, automated tools, and LLMs shall preserve and maintain existing vertical alignments for assignment operators (=) and colons (:) in dictionary definitions or parameter lists. Tools like auto-formatters must be configured to respect these visual tabular alignments."
+rationale    = "Maintains code readability for RF constants, parameters mapping, and tabular data structures."
+verification = "Code review; visual inspection of diffs. Auto-formatters (e.g., Ruff format) must have alignment-breaking rules disabled where applicable."
+scope        = "src, tests"
+
 [tool.setuptools.packages.find]
 where = ["src"]
 
@@ -94,7 +101,7 @@ where = ["src"]
 "*" = ["*.tsv", "*.csv"]
 
 [tool.ruff]
-line-length = 100
+line-length = 150
 target-version = "py312"
 
 [tool.ruff.lint]

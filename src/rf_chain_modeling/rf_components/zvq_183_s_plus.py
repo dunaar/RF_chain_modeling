@@ -2,8 +2,8 @@
 # coding: utf-8
 
 """
-Project: RF_chain_modeling
-GitHub: https://github.com/dunaar/RF_chain_modeling
+Project: rf_chain_modeling
+GitHub: https://github.com/dunaar/rf_chain_modeling
 Auteur: Pessel Arnaud
 """
 
@@ -11,14 +11,15 @@ Auteur: Pessel Arnaud
 # Author: Pessel Arnaud
 # Date: 2025-03-15
 #
-# python -m RF_chain_modeling.rf_components.zvq_183_s_plus
+# python -m rf_chain_modeling.rf_components.zvq_183_s_plus
 # ====================================================================================================
 
-from RF_chain_modeling.rf_utils.csv_data_table import CSVDataTable
-from RF_chain_modeling.rf_utils.rf_modeling import RF_Modelised_Component
+from pathlib import Path
+from rf_chain_modeling.rf_utils.csv_data_table import CSVDataTable
+from rf_chain_modeling.rf_utils.rf_modeling import RF_Modelised_Component
 
-
-csv_data = CSVDataTable('RF_chain_modeling/rf_components/zvq_183_s_plus.tsv', delim_field='\t', multi_df=False)
+_HERE = Path(__file__).parent
+csv_data = CSVDataTable(_HERE / "zvq_183_s_plus.tsv", delim_field="\t", multi_df=False)
 
 if __name__ == '__main__':
     print(csv_data)
@@ -37,7 +38,7 @@ cpnt = RF_Modelised_Component(
 
 if __name__ == '__main__':
     import matplotlib.pyplot as plt
-    from RF_chain_modeling.rf_utils.rf_modeling import plot_signal_spectrum
+    from rf_chain_modeling.rf_utils.rf_modeling import plot_signal_spectrum
     
     ####
     freqs, gains, phases, noise_figures = cpnt.assess_gain( fmin=max(0, csv_data.data['freq'][0] - 2e9), 
@@ -48,7 +49,10 @@ if __name__ == '__main__':
     plot_signal_spectrum(freqs, noise_figures, ylabel_power="NF (dB)")
     
     ####
-    cpnt.assess_iipx()
+    cpnt.assess_ipx(
+        fmin=csv_data.data['freq'][ 0],
+        fmax=csv_data.data['freq'][-1]
+    )
 
     ####
     plt.show()

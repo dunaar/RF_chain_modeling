@@ -1,0 +1,112 @@
+[project]
+name = "rf-chain-modeling"
+version = "0.1.2.dev1"
+description = "RF Signal Simulation and Analysis Framework"
+readme = "README.md"
+license = { file = "LICENSE" }
+authors = [
+    { name = "Pessel Arnaud", email = "99908667+dunaar@users.noreply.github.com" }
+]
+keywords = ["radio-frequency", "simulation", "signal-processing", "python"]
+requires-python = ">=3.12"
+dependencies = [
+    "matplotlib>=3.10.0",
+    "numpy>=2.0.0",
+    "scipy>=1.13.0",
+    "tqdm>=4.67.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=9.0.0",
+    "ruff>=0.4.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/dunaar/RF_chain_modeling"
+Repository = "https://github.com/dunaar/RF_chain_modeling"
+DOI = "https://doi.org/10.5281/zenodo.18145792"
+
+[build-system]
+requires = ["setuptools>=72", "wheel"]
+build-backend = "setuptools.build_meta"
+
+# ==============================================================================
+# FUNCTIONAL REQUIREMENTS & SPECIFICATIONS
+# This section defines binding rules for all contributors, automated tools,
+# and AI language models (LLMs) assisting with this project.
+# Any generated or reviewed code MUST comply with all requirements below.
+# ==============================================================================
+
+[tool.project-requirements]
+
+# ── Chapter 1 — Project Overview & Standards ──────────────────────────────────
+
+[tool.project-requirements.standards]
+description = "Coding and documentation standards that apply to the entire codebase."
+
+[[tool.project-requirements.standards.items]]
+id           = "FR-STD-01"
+shall        = "The project source code (strictly including all comments, variable names, docstrings, and log messages) shall be written entirely in English."
+rationale    = "Ensures readability and maintainability for international contributors and tooling."
+verification = "Code inspection, CI lint rules (ruff), pre-commit hooks."
+scope        = "src/, tests/"
+
+[[tool.project-requirements.standards.items]]
+id           = "FR-STD-02"
+shall        = "The project documentation (technical guides, user manuals, and API references) shall follow the Google docstring style."
+rationale    = "Consistency across the codebase; compatible with Sphinx napoleon extension."
+verification = "Documentary inspection, release checklist, ruff D-rules with convention = 'google'."
+scope        = "src/"
+
+[[tool.project-requirements.standards.items]]
+id           = "FR-STD-03"
+shall        = "Each source file shall include a standardized header containing: project name, module description, author, date, version, and license."
+rationale    = "Traceability and legal compliance."
+verification = "Pre-commit script verifying header presence; code review."
+scope        = "src/"
+
+[[tool.project-requirements.standards.items]]
+id           = "FR-STD-04"
+shall        = "All public classes and methods shall include a Google-style docstring covering: one-line summary, Args, and Returns sections."
+rationale    = "API discoverability and auto-generated documentation quality."
+verification = "ruff D-rules, inspection, docstring coverage tool."
+scope        = "src/"
+
+[[tool.project-requirements.standards.items]]
+id           = "FR-STD-05"
+shall        = "The project shall use Python logging for all runtime messages and shall not use print() in production code."
+rationale    = "Allows runtime log-level control without code changes; avoids stdout pollution."
+verification = "CI static check (ruff T201 rule rejects print()); code review verifies logger usage."
+scope        = "src/"
+
+[[tool.project-requirements.standards.items]]
+id           = "FR-STD-06"
+shall        = "All contributors, automated tools, and LLMs assisting with this project shall strictly preserve and respect underscore-based naming in all Python identifiers. Existing identifiers shall not be renamed by removing, adding, or moving underscores unless such a change is explicitly requested and justified. New function names, variable names, attributes, parameters, and module-level helper names shall follow snake_case with underscores used exactly as intended by Python naming conventions."
+rationale    = "Prevents accidental renaming by LLMs or contributors, preserves API consistency, and enforces Python naming readability and maintainability."
+verification = "Code review, diff inspection, Ruff N-style checks when enabled, and manual verification of generated patches."
+scope        = "src, tests"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+"*" = ["*.tsv", "*.csv"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "D", "T20"]
+# D   → docstring rules (FR-STD-02, FR-STD-04)
+# T20 → T201 rejects print() (FR-STD-05)
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"  # FR-STD-02
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["D"]  # test files exempt from docstring rules
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

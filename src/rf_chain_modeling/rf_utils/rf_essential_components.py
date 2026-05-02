@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 '''
-Project: RF_chain_modeling
+Project: rf_chain_modeling
 RF Signal Simulation and Analysis Framework
 
 This module provides essential RF component modelisation like attenuators, amplifiers, cables, filters, and antennas.
@@ -14,7 +14,7 @@ Key Features:
 Author: Pessel Arnaud
 Date: 2026-01-18
 Version: 0.2
-GitHub: https://github.com/dunaar/RF_chain_modeling
+GitHub: https://github.com/dunaar/rf_chain_modeling
 License: MIT
 '''
 
@@ -257,7 +257,7 @@ class RF_Filter(RF_Abstract_Modelised_Component):
         else:
             self.cutoff_freq     = cutoff_freq
             self.cutoff_freq_opt = cutoff_freq_opt
-            self.cutoff_freqs    = (self.cutoff_freq,)
+            self.cutoff_freqs = (self.cutoff_freq,)   # HPF/LPF have a single cutoff frequency
         
         self.order    = order
         self.q_factor = q_factor
@@ -295,7 +295,8 @@ class RF_Filter(RF_Abstract_Modelised_Component):
         new_ba_signature = (self.order, self.cutoff_freq, sampling_rate)
 
         if new_ba_signature != self._cache_ba_signature:
-            b, a = butter(self.order, self.cutoff_freqs, btype=self.band_type, fs=sampling_rate, output='ba')
+            wn   = self.cutoff_freqs if self.band_type == RF_Filter.BAND_PASS else self.cutoff_freqs[0]
+            b, a = butter(self.order, wn, btype=self.band_type, fs=sampling_rate, output='ba')
 
             self._cache_ba_signature = new_ba_signature
             self._cache_ba           = (b, a)

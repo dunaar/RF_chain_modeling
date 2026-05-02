@@ -18,12 +18,13 @@ GitHub: https://github.com/dunaar/RF_chain_modeling
 License: MIT
 '''
 
-from math import pi
 import logging
+from math import pi
 import matplotlib.pyplot as plt
 
-from ..rf_utils.rf_modeling import Signals, RF_chain, thermal_noise_power_dbm
-from ..rf_utils.rf_essential_components import Antenna_Component, HighPass_Filter, BandPass_Filter, Simple_Amplifier, Attenuator, RF_Cable
+from rf_chain_modeling.rf_utils.rf_modeling import Signals, RF_chain
+from rf_chain_modeling.rf_utils.rf_essential_components import Antenna_Component, HighPass_Filter, BandPass_Filter, Simple_Amplifier, Attenuator, RF_Cable
+#from rf_chain_modeling.rf_components.zvq_183_s_plus import cpnt
 
 logger = logging.getLogger(__name__)
 

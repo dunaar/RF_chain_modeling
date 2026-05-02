@@ -26,7 +26,8 @@ def search_mediane_for_slope(x, y, slope):
     y = np.asarray(y)
     dy = np.diff(y) / np.diff(x)
 
-    args = np.flatnonzero((dy > np.abs(slope)*0.8) & (dy < np.abs(slope)**1.2))
+    tolerance = 0.20 * np.abs(slope)
+    args = np.flatnonzero(np.abs(dy - slope) <= tolerance)
     args = np.unique(np.concatenate((args, args+1)))
     xargs, yargs = x[args], y[args]
 

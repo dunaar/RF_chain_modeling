@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 """
-Project: RF_chain_modeling
+Project: rf_chain_modeling
 RF Signal Simulation and Analysis Framework
 
 This module provides a comprehensive framework for simulating and analyzing RF (Radio Frequency) signals and components.
@@ -17,7 +17,7 @@ Key Features:
 Author: Pessel Arnaud
 Date: 2025-03-15
 Version: 0.1
-GitHub: https://github.com/dunaar/RF_chain_modeling
+GitHub: https://github.com/dunaar/rf_chain_modeling
 License: MIT
 """
 
@@ -127,7 +127,8 @@ def nf_db_to_nf(nf_db: float) -> float:
     Returns:
         float: Linear noise figure contribution (standard deviation of noise voltage).
     """
-    return np.sqrt(10 ** (nf_db / 10) - 1)  # NF_linear = sqrt(F - 1), where F = 10^(NF_dB/10)
+    # Clamp to 0 dB floor: NF < 0 dB is physically impossible for a passive device
+    return np.sqrt(np.maximum(10 ** (nf_db / 10) - 1, 0.0))
 
 def nf_to_nf_db(nf: Union[float, np.ndarray]) -> Union[float, np.ndarray]:
     """Convert noise figure from linear scale to dB.

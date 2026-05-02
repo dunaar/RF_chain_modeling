@@ -2,8 +2,8 @@
 # coding: utf-8
 
 """
-Project: RF_chain_modeling
-GitHub: https://github.com/dunaar/RF_chain_modeling
+Project: rf_chain_modeling
+GitHub: https://github.com/dunaar/rf_chain_modeling
 Auteur: Pessel Arnaud
 """
 
@@ -11,11 +11,11 @@ Auteur: Pessel Arnaud
 # Author: Pessel Arnaud
 # Date: 2025-03-15
 #
-# python -m RF_chain_modeling.rf_subchains.fake_aerial
+# python -m rf_chain_modeling.rf_subchains.fake_aerial
 # ====================================================================================================
 
-from  RF_chain_modeling.rf_utils.rf_modeling import RF_chain, Antenna_Component, Simple_Amplifier, HighPassFilter
-import RF_chain_modeling.rf_components.zvq_183_s_plus as zvq_183_s_plus
+from  rf_chain_modeling.rf_utils.rf_modeling import RF_chain, Antenna_Component, Simple_Amplifier, HighPass_Filter
+import rf_chain_modeling.rf_components.zvq_183_s_plus as zvq_183_s_plus
 
 ant  = Antenna_Component(freqs=(1e9, 20e9), gains_db=(1., 1.))
 sp4t = Simple_Amplifier(gain_db=-1, nf_db=1, op1db_dbm=500, oip3_dbm=39)
@@ -28,7 +28,7 @@ cpnt = RF_chain( (ant, sp4t, hpf, amp) ) # cpnt is the generic name (understand 
 
 if __name__ == '__main__':
     import matplotlib.pyplot as plt
-    from RF_chain_modeling.rf_utils.rf_modeling import plot_signal_spectrum
+    from rf_chain_modeling.rf_utils.rf_modeling import plot_signal_spectrum
     
     ####
     #freqs, gains, phases, noise_figures = cpnt.assess_gain(fmin=0.4e9, fmax=21e9)

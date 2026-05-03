@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-
 """
-Project: rf_chain_modeling
-RF Signal Simulation and Analysis Framework.
+Project:     rf-chain-modeling
+Module:      rf_chain_modeling.rf_utils.rf_modeling
+Description: RF Signal Simulation and Analysis Framework.
+Author:      Pessel Arnaud
+Date:        2026-05-02
+License:     MIT
 
 This module provides a comprehensive framework for simulating and analyzing RF (Radio Frequency) signals and components.
 It includes classes and functions for signal generation, processing, and visualization.
@@ -13,19 +16,12 @@ Key Features:
 - RF component modeling (attenuators, amplifiers, cables, filters, antennas).
 - Signal processing and analysis.
 - Visualization of temporal and spectral representations.
-
-Author: Pessel Arnaud
-Date: 2025-03-15
-Version: 0.1
-GitHub: https://github.com/dunaar/rf_chain_modeling
-License: MIT
 """
 
 import copy
 import logging
 from abc import ABC, abstractmethod
 from collections.abc import Iterable
-from typing import Optional, Tuple, Union
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -43,59 +39,67 @@ logger = logging.getLogger(__name__)
 K_B = 1.38e-23  # Boltzmann constant in Joules per Kelvin
 
 # Default Parameters
-DEFAULT_TEMP_KELVIN = 298.15  # Default temperature in Kelvin: 298,15K = 25°C
-DEFAULT_IMPED_OHMS = 50.0  # Default impedance in ohms for RF systems
-DEFAULT_N_WINDOWS = 32  # Default number of signal windows for processing
+DEFAULT_TEMP_KELVIN = 298.15  # Default temperature in Kelvin (298,15K = 25°C)
+DEFAULT_IMPED_OHMS  =  50.0   # Default impedance in ohms for RF systems
+DEFAULT_N_WINDOWS   =  32     # Default number of signal windows for processing
 
 # ====================================================================================================
 # Utility Functions
 # ====================================================================================================
 def infs_like(arr: np.ndarray) -> np.ndarray:
-    return np.full_like(arr, np.inf)  # Create an array of the same shape as arr filled with infinity
+    """Create an array of the same shape as arr filled with infinity.
 
-def dbm_to_watts(power_dbm: float) -> float:
+    Args:
+        arr: Input array to match shape.
+
+    Returns:
+        Array filled with infinity.
+    """
+    return np.full_like(arr, np.inf)
+
+def dbm_to_watts(power_dbm: float | np.ndarray) -> float | np.ndarray:
     """Convert power from dBm to watts.
 
     Args:
-        power_dbm (float): Power in dBm (decibels relative to 1 milliwatt).
+        power_dbm: Power in dBm (decibels relative to 1 milliwatt).
 
     Returns:
-        float: Power in watts.
+        Power in watts.
     """
     return 10 ** (power_dbm / 10) / 1000  # Convert dBm to milliwatts, then to watts
 
-def watts_to_voltage(power_watts: float, imped_ohms: float = DEFAULT_IMPED_OHMS) -> float:
+def watts_to_voltage(power_watts: float | np.ndarray, imped_ohms: float = DEFAULT_IMPED_OHMS) -> float | np.ndarray:
     """Convert power from watts to voltage assuming a given impedance.
 
     Args:
-        power_watts (float): Power in watts.
-        imped_ohms (float): Impedance in ohms, defaults to 50 ohms.
+        power_watts: Power in watts.
+        imped_ohms: Impedance in ohms, defaults to 50 ohms.
 
     Returns:
-        float: Voltage.
+        Voltage.
     """
     return np.sqrt(power_watts * imped_ohms)  # V = sqrt(P * R) based on Ohm's law
 
-def dbm_to_voltage(power_dbm: float, imped_ohms: float = DEFAULT_IMPED_OHMS) -> float:
+def dbm_to_voltage(power_dbm: float | np.ndarray, imped_ohms: float = DEFAULT_IMPED_OHMS) -> float | np.ndarray:
     """Convert power from dBm to voltage.
 
     Args:
-        power_dbm (float): Power in dBm.
-        imped_ohms (float): Impedance in ohms, defaults to 50 ohms.
+        power_dbm: Power in dBm.
+        imped_ohms: Impedance in ohms, defaults to 50 ohms.
 
     Returns:
-        float: Voltage.
+        Voltage.
     """
     return watts_to_voltage(dbm_to_watts(power_dbm), imped_ohms)  # Chain conversion: dBm -> watts -> voltage
 
-def gain_db_to_gain(gain_db: float) -> float:
+def gain_db_to_gain(gain_db: float | np.ndarray) -> float | np.ndarray:
     """Convert gain from dB to linear scale (voltage gain).
 
     Args:
-        gain_db (float): Gain in decibels.
+        gain_db: Gain in decibels.
 
     Returns:
-        float: Linear voltage gain.
+        Linear voltage gain.
     """
     return 10 ** (gain_db / 20.0)  # Voltage gain: G = 10^(dB/20)
 
@@ -103,25 +107,30 @@ def gain_to_gain_db(gain: float | np.ndarray) -> float | np.ndarray:
     """Convert gain from linear scale to dB.
 
     Args:
-        gain (float | np.ndarray): Linear gain value (scalar or array).
+        gain: Linear gain value (scalar or array).
 
     Returns:
-        float | np.ndarray: Gain in dB.
+        Gain in dB.
     """
-    if np.any(gain == 0):
-        #logger.debug( f'Gain value contains zero(s), {''.join(traceback.format_list(traceback.extract_stack()))}' )
-        gain = gain + 1e-100
+    if isinstance(gain, np.ndarray):
+        # In-place modification for arrays (does not create a new copy in memory)
+        if np.any(gain == 0):
+            gain[gain == 0] = 1e-100
+    else:
+        # Standard reassignment for scalars (floats are immutable)
+        if gain == 0:
+            gain = 1e-100
 
     return 20 * np.log10(np.abs(gain))  # dB = 20 * log10(|G|) for voltage gain
 
-def nf_db_to_nf(nf_db: float) -> float:
+def nf_db_to_nf(nf_db: float | np.ndarray) -> float | np.ndarray:
     """Convert noise figure from dB to linear scale.
 
     Args:
-        nf_db (float): Noise figure in dB.
+        nf_db: Noise figure in dB.
 
     Returns:
-        float: Linear noise figure contribution (standard deviation of noise voltage).
+        Linear noise figure contribution (standard deviation of noise voltage).
     """
     # Clamp to 0 dB floor: NF < 0 dB is physically impossible for a passive device
     return np.sqrt(np.maximum(10 ** (nf_db / 10) - 1, 0.0))
@@ -130,10 +139,10 @@ def nf_to_nf_db(nf: float | np.ndarray) -> float | np.ndarray:
     """Convert noise figure from linear scale to dB.
 
     Args:
-        nf (float | np.ndarray): Linear noise figure (scalar or array).
+        nf: Linear noise figure (scalar or array).
 
     Returns:
-        float | np.ndarray: Noise figure in dB.
+        Noise figure in dB.
     """
     return 10 * np.log10(nf ** 2 + 1)  # NF_dB = 10 * log10(F), where F = NF_linear^2 + 1
 
@@ -141,38 +150,43 @@ def mul_nfs(nf1: float | np.ndarray, nf2: float | np.ndarray) -> float | np.ndar
     """Multiply noise factors to compute combined noise figure using Friis formula.
 
     Args:
-        nf1 (float | np.ndarray): Linear noise figure of first component.
-        nf2 (float | np.ndarray): Linear noise figure of second component.
+        nf1: Linear noise figure of first component.
+        nf2: Linear noise figure of second component.
 
     Returns:
-        float | np.ndarray: Combined linear noise figure.
+        Combined linear noise figure.
     """
-    return np.sqrt((nf1 ** 2 + 1) * (nf2 ** 2 + 1) - 1)  # Friis formula for noise factor multiplication
+    return np.sqrt((nf1**2 + 1) * (nf2**2 + 1) - 1)  # Friis formula for noise factor multiplication
 
 def voltage_to_watts(voltage: float | np.ndarray, imped_ohms: float = 50) -> float | np.ndarray:
     """Convert voltage to power in watts.
 
     Args:
-        voltage (float | np.ndarray): Voltage value (scalar or array).
-        imped_ohms (float): Impedance in ohms, defaults to 50 ohms.
+        voltage: Voltage value (scalar or array).
+        imped_ohms: Impedance in ohms, defaults to 50 ohms.
 
     Returns:
-        float | np.ndarray: Power in watts.
+        Power in watts.
     """
-    return voltage ** 2 / imped_ohms  # P = V^2 / R
+    return voltage**2 / imped_ohms  # P = V^2 / R
 
 def watts_to_dbm(power_watts: float | np.ndarray) -> float | np.ndarray:
     """Convert power from watts to dBm.
 
     Args:
-        power_watts (float | np.ndarray): Power in watts (scalar or array).
+        power_watts: Power in watts (scalar or array).
 
     Returns:
-        float | np.ndarray: Power in dBm.
+        Power in dBm.
     """
-    if np.any(power_watts == 0):
-        #logger.debug( f'Power value contains zero(s), {''.join(traceback.format_list(traceback.extract_stack()))}' )
-        power_watts = power_watts + 1e-100
+    if isinstance(power_watts, np.ndarray):
+        # In-place modification for arrays (does not create a new copy in memory)
+        if np.any(power_watts == 0):
+            power_watts[power_watts == 0] = 1e-100
+    else:
+        # Standard reassignment for scalars (floats are immutable)
+        if power_watts == 0:
+            power_watts = 1e-100
 
     return 10 * np.log10(power_watts * 1000)  # dBm = 10 * log10(P * 1000) to convert watts to milliwatts
 
@@ -180,45 +194,77 @@ def voltage_to_dbm(voltage: float | np.ndarray, imped_ohms: float = DEFAULT_IMPE
     """Convert voltage to power in dBm.
 
     Args:
-        voltage (float | np.ndarray): RMS voltage.
-        imped_ohms (float): Impedance in ohms, defaults to 50 ohms.
+        voltage: RMS voltage.
+        imped_ohms: Impedance in ohms, defaults to 50 ohms.
 
     Returns:
-        float | np.ndarray: Power in dBm.
+        Power in dBm.
     """
     return watts_to_dbm(voltage_to_watts(voltage, imped_ohms))  # Chain conversion: voltage -> watts -> dBm
 
-def calculate_rms(signal: np.ndarray) -> float:
-    """Calculate the Root Mean Square (RMS) value of a signal.
+def calculate_temporal_rms(signal: np.ndarray) -> float:
+    """Calculate the Root Mean Square (RMS) value of a temporal signal.
+
+    For temporal signals, the RMS is calculated as the square root of the MEAN of the squared magnitudes of the spectrums.
 
     Args:
-        signal (np.ndarray): Input signal (1D or 2D array).
+        signal: Input temporal signal as a 1D or 2D array.
 
     Returns:
-        float: RMS value of the signal (scalar for 1D, array for 2D).
+        RMS value of the temporal signal.
     """
-    return float( np.sqrt(np.mean(np.abs(signal) ** 2)) )  # RMS = sqrt(mean(|signal|^2))
+    return float(np.sqrt(np.mean(np.abs(signal) ** 2)))
 
-def calculate_rms_dbm(signal: np.ndarray) -> float:
+def calculate_temporal_rms_dbm(signal: np.ndarray, imped_ohms: float = DEFAULT_IMPED_OHMS) -> float:
     """Calculate the RMS value of a signal in dBm.
 
+    For temporal signals, the RMS is calculated as the square root of the MEAN of the squared magnitudes of the spectrums.
+
     Args:
-        signal (np.ndarray): Input signal (1D or 2D array).
+        signal: Input signal (1D or 2D array).
+        imped_ohms: Impedance in ohms.
 
     Returns:
-        float: RMS power in dBm.
+        RMS power in dBm.
     """
-    return float( voltage_to_dbm(calculate_rms(signal)) )  # Convert RMS voltage to dBm
+    return float( voltage_to_dbm(calculate_temporal_rms(signal), imped_ohms) )  # Convert RMS voltage to dBm
+
+def calculate_spectral_rms(spectrums: np.ndarray) -> float:
+    """Calculate the Root Mean Square (RMS) value of a spectral signal.
+
+    For spectral signals, the RMS is calculated as the square root of the SUM of the squared magnitudes of the spectrums.
+
+    Args:
+        spectrums: Input spectral signal as a 1D or 2D array.
+
+    Returns:
+        RMS value of the spectral signal.
+    """
+    return float(np.sqrt(np.sum(np.abs(spectrums) ** 2)))
+
+def calculate_spectral_rms_dbm(spectrums: np.ndarray, imped_ohms: float = DEFAULT_IMPED_OHMS) -> float:
+    """Calculate the RMS value of a signal in dBm.
+
+    For spectral signals, the RMS is calculated as the square root of the SUM of the squared magnitudes of the spectrums.
+
+    Args:
+        spectrums: Input spectral signal (1D or 2D array).
+        imped_ohms: Impedance in ohms.
+
+    Returns:
+        RMS power in dBm.
+    """
+    return float( voltage_to_dbm(calculate_spectral_rms(spectrums), imped_ohms) )  # Convert RMS voltage to dBm
 
 def thermal_noise_power_dbm(temp_kelvin: float, bandwidth: float) -> float:
     """Calculate thermal noise power in dBm based on temperature and bandwidth.
 
     Args:
-        temp_kelvin (float): Temperature in Kelvin.
-        bandwidth (float): Bandwidth in Hertz.
+        temp_kelvin: Temperature in Kelvin.
+        bandwidth: Bandwidth in Hertz.
 
     Returns:
-        float: Thermal noise power in dBm.
+        Thermal noise power in dBm.
     """
     return watts_to_dbm(K_B * temp_kelvin * bandwidth)  # P = K_B * T * B, then convert to dBm
 
@@ -230,21 +276,20 @@ def compute_spectrums(sigxd: np.ndarray, sampling_rate: float) -> tuple[np.ndarr
     """Compute the frequency spectrum of a signal using FFT.
 
     Args:
-        sigxd (np.ndarray): Input signal (1D or 2D array).
-        sampling_rate (float): Sampling rate in Hz.
+        sigxd: Input signal (1D or 2D array).
+        sampling_rate: Sampling rate in Hz.
 
     Returns:
-        tuple[np.ndarray, np.ndarray]: Frequency bins and corresponding spectrums.
+        Frequency bins and corresponding spectrums.
     """
     if len(sigxd.shape) == 1:
         sig2d = sigxd.reshape(1, sigxd.shape[0])  # Convert 1D to 2D for consistent processing
     else:
         sig2d = sigxd
 
-    n_points = sig2d.shape[1]  # Number of samples in each window
-
-    freqs = np.fft.fftfreq(n_points, 1 / sampling_rate)  # Frequency bins
-    spectrums = np.fft.fft(sig2d, axis=1) / n_points  # FFT normalized by number of points
+    n_points  = sig2d.shape[1]                               # Number of samples in each window
+    freqs     = np.fft.fftfreq(n_points, 1 / sampling_rate)  # Frequency bins
+    spectrums = np.fft.fft(sig2d, axis=1) / n_points         # FFT normalized by number of points
 
     return freqs, spectrums
 
@@ -252,37 +297,39 @@ def get_spectrums_power_n_phase(freqs: np.ndarray, spectrums: np.ndarray, imped_
     """Compute the power and phase spectrum from FFT results.
 
     Args:
-        freqs (np.ndarray): Frequency bins.
-        spectrums (np.ndarray): Complex FFT spectrums (1D or 2D).
-        imped_ohms (float): Impedance in ohms, defaults to 50 ohms.
+        freqs: Frequency bins.
+        spectrums: Complex FFT spectrums (1D or 2D).
+        imped_ohms: Impedance in ohms, defaults to 50 ohms.
 
     Returns:
-        tuple[np.ndarray, np.ndarray]: Power spectrum in dBm and phase spectrum in radians.
+        Power spectrum in dBm and phase spectrum in radians.
     """
-    spects_amp = np.abs(spectrums)  # Amplitude of the spectrum
+    spects_amp   = np.abs(spectrums)  # Amplitude of the spectrum
     spects_power = voltage_to_dbm(spects_amp, imped_ohms)  # Convert amplitude to power in dBm
     spects_phase = np.angle(spectrums)  # Phase in radians
+
     return spects_power, spects_phase
 
 # ====================================================================================================
 # Visualization Functions
 # ====================================================================================================
 
-def plot_temporal_signal(time: np.ndarray, sigxd: np.ndarray, tmin: Optional[float] = None, tmax: Optional[float] = None, title: str = "Temporal Signal", ylabel: str = "Amplitude") -> None:
+def plot_temporal_signal(time: np.ndarray, sigxd: np.ndarray, tmin: float | None = None, tmax: float | None = None,
+                         title: str = "Temporal Signal", ylabel: str = "Amplitude" ) -> None:
     """Plot the temporal representation of a signal with automatic unit scaling.
 
     Args:
-        time (np.ndarray): Time array in seconds.
-        sigxd (np.ndarray): Signal array (1D or 2D).
-        tmin (Optional[float]): Minimum time to plot, defaults to signal start.
-        tmax (Optional[float]): Maximum time to plot, defaults to signal end.
-        title (str): Plot title, defaults to "Temporal Signal".
-        ylabel (str): Y-axis label, defaults to "Amplitude".
+        time: Time array in seconds.
+        sigxd: Signal array (1D or 2D).
+        tmin: Minimum time to plot, defaults to signal start.
+        tmax: Maximum time to plot, defaults to signal end.
+        title: Plot title.
+        ylabel: Y-axis label.
     """
-    tmin = tmin if tmin is not None else 0  # Default to start of signal
+    tmin = tmin if tmin is not None else 0.0         # Default to start of signal
     tmax = tmax if tmax is not None else time.max()  # Default to end of signal
-    idx_min = np.argmin(np.abs(time - tmin))  # Index of closest time to tmin
-    idx_max = np.argmin(np.abs(time - tmax))  # Index of closest time to tmax
+    idx_min = np.argmin(np.abs(time - tmin))         # Index of closest time to tmin
+    idx_max = np.argmin(np.abs(time - tmax))         # Index of closest time to tmax
 
     # Determine appropriate time unit for plotting
     if (time[-1] - time[0]) > 10:
@@ -310,19 +357,21 @@ def plot_temporal_signal(time: np.ndarray, sigxd: np.ndarray, tmin: Optional[flo
     ax.grid(True)  # Add grid
     plt.tight_layout()  # Adjust layout
 
-def plot_signal_spectrum(freqs: np.ndarray, spectrum_power: np.ndarray, spectrum_phase: Optional[np.ndarray] = None, title_power: str = "Power Spectrum", title_phase: str = "Phase Spectrum", ylabel_power: str = "Power (dBm)", ylabel_phase: str = "Phase (radians)") -> None:
+def plot_signal_spectrum(freqs: np.ndarray, spectrum_power: np.ndarray, spectrum_phase: np.ndarray | None = None,
+                         title_power: str = "Power Spectrum", title_phase: str = "Phase Spectrum",
+                         ylabel_power: str = "Power (dBm)", ylabel_phase: str = "Phase (radians)") -> None:
     """Plot the frequency power spectrum and optionally the phase spectrum with automatic unit scaling.
 
     Args:
-        freqs (np.ndarray): Frequency bins in Hz.
-        spectrum_power (np.ndarray): Power spectrum in dBm (1D or 2D).
-        spectrum_phase (Optional[np.ndarray]): Phase spectrum in radians (1D or 2D), defaults to None.
-        title_power (str): Title for power spectrum plot, defaults to "Power Spectrum".
-        title_phase (str): Title for phase spectrum plot, defaults to "Phase Spectrum".
-        ylabel_power (str): Y-axis label for power spectrum, defaults to "Power (dBm)".
-        ylabel_phase (str): Y-axis label for phase spectrum, defaults to "Phase (radians)".
+        freqs: Frequency bins in Hz.
+        spectrum_power: Power spectrum in dBm (1D or 2D).
+        spectrum_phase: Phase spectrum in radians (1D or 2D).
+        title_power: Title for power spectrum plot.
+        title_phase: Title for phase spectrum plot.
+        ylabel_power: Y-axis label for power spectrum.
+        ylabel_phase: Y-axis label for phase spectrum.
     """
-    freqs = np.array(freqs)
+    freqs   = np.array(freqs)
     idx_max = np.argmax(freqs) + 1  # Index of maximum positive frequency
 
     # Determine appropriate frequency unit for plotting
@@ -333,7 +382,7 @@ def plot_signal_spectrum(freqs: np.ndarray, spectrum_power: np.ndarray, spectrum
         freqs = freqs / 1e6
         unit = 'MHz'
     elif freqs.max() - freqs[0] > 10e3:
-        freqs = np.array(freqs) / 1e3
+        freqs = freqs / 1e3
         unit = 'kHz'
     else:
         unit = 'Hz'
@@ -395,15 +444,16 @@ class Signals:
         _spects_phase (Optional[np.ndarray]): Cached phase spectrums in radians.
     """
 
-    def __init__(self, fmax: float, bin_width: float, n_windows: int = DEFAULT_N_WINDOWS, imped_ohms: float = DEFAULT_IMPED_OHMS, temp_kelvin: float = DEFAULT_TEMP_KELVIN) -> None:
+    def __init__(self, fmax: float, bin_width: float, n_windows: int = DEFAULT_N_WINDOWS,
+                 imped_ohms: float = DEFAULT_IMPED_OHMS, temp_kelvin: float = DEFAULT_TEMP_KELVIN) -> None:
         """Initialize the Signals object with specified parameters.
 
         Args:
-            fmax (float): Maximum frequency of signals in Hz.
-            bin_width (float): Width of the spectral bins in Hz.
-            n_windows (int): Number of signal windows, defaults to 32.
-            imped_ohms (float): Impedance in ohms, defaults to 50 ohms.
-            temp_kelvin (float): Temperature in Kelvin, defaults to 298.15 K (25°C).
+            fmax: Maximum frequency of signals in Hz.
+            bin_width: Width of the spectral bins in Hz.
+            n_windows: Number of signal windows, defaults to 32.
+            imped_ohms: Impedance in ohms, defaults to 50 ohms.
+            temp_kelvin: Temperature in Kelvin, defaults to 298.15 K.
         """
         self.fmax        = fmax
         self.bin_width   = bin_width
@@ -431,34 +481,35 @@ class Signals:
         self._spects_phase      = None
 
     @staticmethod
-    def generate_signal_dbm(time: np.ndarray, freq: float, power_dbm: float, phase: float, imped_ohms: float = DEFAULT_IMPED_OHMS) -> np.ndarray:
+    def generate_signal_dbm(time: np.ndarray, freq: float, power_dbm: float, phase: float,
+                            imped_ohms: float = DEFAULT_IMPED_OHMS) -> np.ndarray:
         """Generate a monotone sinusoidal signal with specified power and phase.
 
         Args:
-            time (np.ndarray): Time array in seconds.
-            freq (float): Frequency in Hz.
-            power_dbm (float): Power in dBm.
-            phase (float): Phase in radians.
-            imped_ohms (float): Impedance in ohms, defaults to 50 ohms.
+            time: Time array in seconds.
+            freq: Frequency in Hz.
+            power_dbm: Power in dBm.
+            phase: Phase in radians.
+            imped_ohms: Impedance in ohms.
 
         Returns:
-            np.ndarray: Generated signal array.
+            Generated signal array.
         """
         amp_rms = dbm_to_voltage(power_dbm, imped_ohms)  # RMS amplitude
         amp_pk = np.sqrt(2) * amp_rms  # Peak amplitude from RMS (for sine wave)
         return amp_pk * np.sin(2 * pi * freq * time + phase)  # Generate sine wave
 
     @staticmethod
-    def generate_noise_dbm(shape: Union[int, Tuple[int, ...]], power_dbm: float, imped_ohms: float = DEFAULT_IMPED_OHMS) -> np.ndarray:
+    def generate_noise_dbm( shape: int | tuple[int, ...], power_dbm: float, imped_ohms: float = DEFAULT_IMPED_OHMS) -> np.ndarray:
         """Generate Gaussian noise with specified power in dBm.
 
         Args:
-            shape (Union[int, Tuple[int, ...]]): Shape of the noise array (scalar or tuple).
-            power_dbm (float): Power in dBm.
-            imped_ohms (float): Impedance in ohms, defaults to 50 ohms.
+            shape: Shape of the noise array.
+            power_dbm: Power in dBm.
+            imped_ohms: Impedance in ohms.
 
         Returns:
-            np.ndarray: Generated noise array.
+            Generated noise array.
         """
         amp = dbm_to_voltage(power_dbm, imped_ohms)  # amplitude
         return np.random.normal(0, amp, shape)  # Gaussian noise with zero mean
@@ -467,7 +518,7 @@ class Signals:
         """Compute the frequency spectrum of the signals if not up-to-date.
 
         Args:
-            force (bool): Force recomputation even if spectrum is up-to-date, defaults to False.
+            force: Force recomputation even if spectrum is up-to-date.
         """
         if force or not self._spectrum_uptodate:
             self.freqs, self._spectrums = compute_spectrums(self.sig2d, self.sampling_rate)
@@ -508,21 +559,21 @@ class Signals:
         """Get the index of the closest frequency in the spectrum.
 
         Args:
-            freq (float): Target frequency in Hz.
+            freq: Target frequency in Hz.
 
         Returns:
-            int: Index of the closest frequency bin.
+            Index of the closest frequency bin.
         """
-        return np.argmin(np.abs(self.freqs - freq))
+        return int(np.argmin(np.abs(self.freqs - freq)))
 
     def add_signal(self, sigxd: np.ndarray) -> None:
         """Add a signal to the existing signals.
 
         Args:
-            sigxd (np.ndarray): Signal to add (1D or 2D array).
+            sigxd: Signal to add (1D or 2D array).
 
         Raises:
-            ValueError: If the shape of sigxd is incompatible with self.sig2d.
+            ValueError: If the shape of sigxd is incompatible.
         """
         if sigxd.shape == self.sig2d.shape:
             self.sig2d += sigxd
@@ -539,9 +590,9 @@ class Signals:
         """Add a sinusoidal tone to the signals.
 
         Args:
-            freq (float): Frequency in Hz.
-            power_dbm (float): Power in dBm.
-            phase (float): Phase in radians.
+            freq: Frequency in Hz.
+            power_dbm: Power in dBm.
+            phase: Phase in radians.
         """
         tone = self.generate_signal_dbm(self.time, freq, power_dbm, phase, self.imped_ohms)
         self.sig2d += tone
@@ -551,17 +602,17 @@ class Signals:
         """Add Gaussian noise to the signals.
 
         Args:
-            power_dbm (float): Power in dBm.
+            power_dbm: Power in dBm.
         """
         noise = self.generate_noise_dbm(self.shape, power_dbm, self.imped_ohms)
         self.sig2d += noise
         self._spectrum_uptodate = False
 
-    def add_thermal_noise(self, temp_kelvin: Optional[float] = None) -> None:
+    def add_thermal_noise(self, temp_kelvin: float | None = None) -> None:
         """Add thermal noise to the signals based on temperature and bandwidth.
 
         Args:
-            temp_kelvin (Optional[float]): Temperature in Kelvin, defaults to instance temperature.
+            temp_kelvin: Temperature in Kelvin.
         """
         temp_kelvin = temp_kelvin if temp_kelvin is not None else self.temp_kelvin
         noise_power_dbm = thermal_noise_power_dbm(temp_kelvin, self.bandwidth)
@@ -571,29 +622,30 @@ class Signals:
         """Calculate the RMS value of the signals in dBm.
 
         Returns:
-            float: RMS power in dBm.
+            RMS power in dBm.
         """
         return voltage_to_dbm(np.sqrt(np.mean(np.abs(self.sig2d) ** 2)), self.imped_ohms)
 
-    def plot_temporal(self, tmin: Optional[float] = None, tmax: Optional[float] = None, title: str = "Temporal Signal", ylabel: str = "Amplitude") -> None:
+    def plot_temporal(self, tmin: float | None = None, tmax: float | None = None, title: str = "Temporal Signal", ylabel: str = "Amplitude") -> None:
         """Plot the temporal representation of the signals.
 
         Args:
-            tmin (Optional[float]): Minimum time to plot, defaults to signal start.
-            tmax (Optional[float]): Maximum time to plot, defaults to signal end.
-            title (str): Plot title, defaults to "Temporal Signal".
-            ylabel (str): Y-axis label, defaults to "Amplitude".
+            tmin: Minimum time to plot.
+            tmax: Maximum time to plot.
+            title: Plot title.
+            ylabel: Y-axis label.
         """
         plot_temporal_signal(self.time, self.sig2d, tmin, tmax, title, ylabel)
 
-    def plot_spectrum(self, title_power: str = "Power Spectrum", title_phase: str = "Phase Spectrum", ylabel_power: str = "Power (dBm)", ylabel_phase: str = "Phase (radians)") -> None:
+    def plot_spectrum(self, title_power: str = "Power Spectrum", title_phase: str = "Phase Spectrum",
+                      ylabel_power: str = "Power (dBm)", ylabel_phase: str = "Phase (radians)") -> None:
         """Plot the frequency spectrum of the signals (power and phase).
 
         Args:
-            title_power (str): Title for power spectrum plot, defaults to "Power Spectrum".
-            title_phase (str): Title for phase spectrum plot, defaults to "Phase Spectrum".
-            ylabel_power (str): Y-axis label for power spectrum, defaults to "Power (dBm)".
-            ylabel_phase (str): Y-axis label for phase spectrum, defaults to "Phase (radians)".
+            title_power: Title for power spectrum plot.
+            title_phase: Title for phase spectrum plot.
+            ylabel_power: Y-axis label for power spectrum.
+            ylabel_phase: Y-axis label for phase spectrum.
         """
         exp3      = min(3, int(np.log10(self.bin_width)/3.))
         bin_width = self.bin_width / (10**(3*exp3))   # Scale bin width for unit representation
@@ -617,34 +669,34 @@ class RF_Abstract_Base_Component(ABC):
         """Apply a hyperbolic tangent function scaled by k to limit signal amplitude.
 
         Args:
-            x (np.ndarray): Input signal array.
-            k (float): Scaling factor for amplitude limiting.
+            x: Input signal array.
+            k: Scaling factor for amplitude limiting.
 
         Returns:
-            np.ndarray: Transformed signal array.
+            Transformed signal array.
         """
         return k * np.tanh(x / k)
 
     @abstractmethod
-    def process_signals(self, signals: Signals, temp_kelvin: Optional[float] = None) -> None:
+    def process_signals(self, signals: Signals, temp_kelvin: float | None = None) -> None:
         """Abstract method to process signals. Must be implemented by subclasses.
 
         Args:
-            signals (Signals): Input signals object to process.
-            temp_kelvin (Optional[float]): Temperature in Kelvin, defaults to None.
+            signals: Input signals object to process.
+            temp_kelvin: Temperature in Kelvin.
         """
         pass
 
-    def process(self, signals: Signals, temp_kelvin: Optional[float] = None, inplace: bool = True) -> Optional[Signals]:
+    def process(self, signals: Signals, temp_kelvin: float | None = None, inplace: bool = True) -> Signals | None:
         """Process signals through the RF component, optionally returning a new object.
 
         Args:
-            signals (Signals): Input signals object.
-            temp_kelvin (Optional[float]): Temperature in Kelvin, defaults to None.
-            inplace (bool): If True, modify signals in place; if False, return a new Signals object.
+            signals: Input signals object.
+            temp_kelvin: Temperature in Kelvin.
+            inplace: If True, modify signals in place; if False, return a new Signals object.
 
         Returns:
-            Optional[Signals]: Processed signals if inplace is False, otherwise None.
+            Processed signals if inplace is False, otherwise None.
         """
         if not inplace:
             signals = copy.deepcopy(signals)
@@ -657,17 +709,17 @@ class RF_Abstract_Base_Component(ABC):
 
         return signals if not inplace else None
 
-    def assess_gain(self, fmin: float = 400e6, fmax: float = 19e9, fstp: float = 100e6, temp_kelvin: float = DEFAULT_TEMP_KELVIN) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    def assess_gain(self, fmin: float = 400e6, fmax: float = 19e9, fstp: float = 100e6, temp_kelvin: float = DEFAULT_TEMP_KELVIN) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         """Assess the gain, phase, and noise figure versus frequency of the RF component.
 
         Args:
-            fmin (float): Minimum frequency in Hz, defaults to 400 MHz.
-            fmax (float): Maximum frequency in Hz, defaults to 19 GHz.
-            fstp (float): Frequency step in Hz, defaults to 100 MHz.
-            temp_kelvin (float): Temperature in Kelvin, defaults to 298.15 K.
+            fmin: Minimum frequency in Hz.
+            fmax: Maximum frequency in Hz.
+            fstp: Frequency step in Hz.
+            temp_kelvin: Temperature in Kelvin.
 
         Returns:
-            Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]: Frequencies, gains (dB), phases (radians), noise figures (dB).
+            Tuple of Frequencies, gains (dB), phases (radians), noise figures (dB).
         """
         logger.info( f"<{self.__class__.__name__}> Assess the gain and phase versus frequency of the RF component.")
 
@@ -729,22 +781,22 @@ class RF_Abstract_Base_Component(ABC):
 
         return freqs, gains, phass, n_fgs
 
-    def assess_ipx_for_freq(self, fc: float = 9e9, df: float = 100e6, temp_kelvin: float = DEFAULT_TEMP_KELVIN, toplot: bool = False) -> Tuple[float, float, float, float]:
+    def assess_ipx_for_freq(self, fc: float = 9e9, df: float = 100e6, temp_kelvin: float = DEFAULT_TEMP_KELVIN, toplot: bool = False) -> tuple[float, float, float, float, float, float]:
         """Assess the IP2 and IP3 (Intercept Points of order 2 and 3) for a specific frequency.
 
         Args:
-            fc (float): Center frequency in Hz, defaults to 9 GHz.
-            df (float): Frequency separation in Hz, defaults to 400 MHz.
-            temp_kelvin (float): Temperature in Kelvin, defaults to 298.15 K.
-            toplot (bool): If True, generate plots for the assessment.
+            fc: Center frequency in Hz.
+            df: Frequency separation in Hz.
+            temp_kelvin: Temperature in Kelvin.
+            toplot: Generate plots if True.
 
         Returns:
-            Tuple[float, float, float, float]: Gain (dB), OP1dB (dBm), IIP2 (dBm), OIP3 (dBm).
+            Tuple of (Gain dB, OP1dB dBm, IIP3 dBm, OIP3 dBm, IIP2 dBm, OIP2 dBm).
         """
         logger.info( f'<{self.__class__.__name__}> ## Assess the IP2 and IP3 (Intercept Point of order 2 and 3) of the RF component.' )
 
         # --------------------------------------------------------
-        fmax = 3. * fc
+        fmax      = 3. * fc
         bin_width = df / 4 #32
         n_windows = 1
         # --------------------------------------------------------
@@ -812,7 +864,7 @@ class RF_Abstract_Base_Component(ABC):
 
         if not gains_db:
             logger.info( f'<{self.__class__.__name__}> Error: Unable to characterize Gain finely.' )
-            gain_db  = outpt_pwr_m[len(outpt_pwr_m)//2] - input_pwr_m[len(outpt_pwr_m)//2]
+            gain_db = outpt_pwr_m[len(outpt_pwr_m)//2] - input_pwr_m[len(outpt_pwr_m)//2]
 
         if op1db_dbm is None:
             logger.info( f'<{self.__class__.__name__}> Error: Unable to characterize P1dB finely.' )
@@ -853,20 +905,22 @@ class RF_Abstract_Base_Component(ABC):
 
         # Retrieving IP3
         im3_slope, im3_inter = search_mediane_for_slope(input_pwr_d, im3___power, 3)
-        if np.count_nonzero((np.abs(im3___power - (im3_slope * input_pwr_d + im3_inter)) < 1.))/len(input_pwr_d) > 5e-2:
+        if np.count_nonzero((np.abs(im3___power - (im3_slope * input_pwr_d + im3_inter)) < 1.)) / len(input_pwr_d) > 5e-2:
             iip3_dbm = (gain_db - im3_inter) / 2
         else:
             logger.info("Error: Unable to characterize IP3 finely.")
             iip3_dbm = op1db_dbm + 14 - gain_db
-        oip3_dbm  = iip3_dbm + gain_db
+
+        oip3_dbm = iip3_dbm + gain_db
 
         # Retrieving IP2
         im2_slope, im2_inter = search_mediane_for_slope(input_pwr_d, im2___power, 2)
-        if np.count_nonzero((np.abs(im2___power - (im2_slope * input_pwr_d + im2_inter)) < 1.))/len(input_pwr_d) > 5e-2:
+        if np.count_nonzero((np.abs(im2___power - (im2_slope * input_pwr_d + im2_inter)) < 1.)) / len(input_pwr_d) > 5e-2:
             iip2_dbm = gain_db - im2_inter
         else:
             logger.info( f'<{self.__class__.__name__}> Error: Unable to characterize IP2 finely.' )
             iip2_dbm = iip3_dbm + 25
+
         oip2_dbm = iip2_dbm + gain_db if iip2_dbm is not None else None
         # --------------------------------------------------------
 
@@ -902,17 +956,19 @@ class RF_Abstract_Base_Component(ABC):
 
         return gain_db, op1db_dbm, iip3_dbm, oip3_dbm, iip2_dbm, oip2_dbm
 
-    def assess_ipx(self, fmin: float, fmax: float, fstp: float = 1e9, df: float = 200e6, temp_kelvin: float = DEFAULT_TEMP_KELVIN, toplot: bool = False) -> list:
+    def assess_ipx(self, fmin: float, fmax: float, fstp: float = 1e9, df: float = 200e6, temp_kelvin: float = DEFAULT_TEMP_KELVIN, toplot: bool = False) -> np.ndarray:
         """Assess the IP2 and IP3 for a range of frequencies.
 
         Args:
-            fmin (float): Minimum frequency in Hz.
-            fmax (float): Maximum frequency in Hz.
-            fstp (float): Frequency step in Hz, defaults to 1 GHz.
-            temp_kelvin (float): Temperature in Kelvin, defaults to 298.15 K.
+            fmin: Minimum frequency in Hz.
+            fmax: Maximum frequency in Hz.
+            fstp: Frequency step in Hz.
+            df: Frequency separation.
+            temp_kelvin: Temperature in Kelvin.
+            toplot: Generate plot if True.
 
         Returns:
-            list: List of tuples containing (frequency, (gain_db, op1db_dbm, iip2_dbm, oip3_dbm)).
+            Numpy array of assessed metrics across frequencies (frequency, (gain_db, op1db_dbm, iip2_dbm, oip3_dbm)).
         """
         results = []
         freqs = np.arange(fmin, fmax+0.1*fstp, fstp) # fmax+0.1*fstp: in order to include fmax
@@ -950,27 +1006,28 @@ class RF_chain(RF_Abstract_Base_Component):
         rf_components (list): List of RF_Abstract_Base_Component instances in the chain.
     """
 
-    def __init__(self, rf_components: list = []) -> None:
+    def __init__(self, rf_components: list[RF_Abstract_Base_Component]) -> None:
         """Initialize the RF chain with a list of components.
 
         Args:
-            rf_components (list): List of RF_Abstract_Base_Component objects, defaults to empty list.
+            rf_components: List of RF_Abstract_Base_Component objects.
         """
         self.rf_components = list(rf_components)
 
-    def process_signals(self, signals: Signals, temp_kelvin: Optional[float] = None) -> None:
+    def process_signals(self, signals: Signals, temp_kelvin: float | None = None) -> None:
         """Process signals through each RF component in the chain sequentially.
 
         Args:
-            signals (Signals): Input signals object.
-            temp_kelvin (Optional[float]): Temperature in Kelvin, defaults to None.
+            signals: Input signals object.
+            temp_kelvin: Temperature in Kelvin.
         """
         for rf_compnt in self.rf_components:
-            rf_compnt.process(signals, temp_kelvin)
+            rf_compnt.process(signals, temp_kelvin=temp_kelvin)
 
 # ====================================================================================================
 # RF Modelised Component Class
 # ====================================================================================================
+
 switch_print = False
 class RF_Abstract_Modelised_Component(RF_Abstract_Base_Component, ABC):
     """Abstract base class representing a modelised RF component with frequency-dependent characteristics.
@@ -1000,7 +1057,7 @@ class RF_Abstract_Modelised_Component(RF_Abstract_Base_Component, ABC):
     nfs___inf = nf_db_to_nf(-gains_inf_db)
 
     @abstractmethod
-    def get_rf_parameters_adapted_to_signals(self, signals: Signals, temp_kelvin: Optional[float] = None) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    def get_rf_parameters_adapted_to_signals(self, signals: Signals, temp_kelvin: float | None = None) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         """Abstract method to return frequency-dependent gains, noise, op1db, iip3 and iip2 figures for the signals.
 
         Args:
@@ -1018,7 +1075,7 @@ class RF_Abstract_Modelised_Component(RF_Abstract_Base_Component, ABC):
         return self.extend_rf_parameters(signals, temp_kelvin=temp_kelvin)
 
     def extend_rf_parameters(self, freqs: np.ndarray, gains: np.ndarray, nf__s: np.ndarray,
-                             op1ds: np.ndarray, iip3s: np.ndarray, iip2s: np.ndarray) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+                             op1ds: np.ndarray, iip3s: np.ndarray, iip2s: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         """Extend frequency-dependent parameters to include out-of-band behavior."""
         # Extend frequency range for out-of-band behavior
         freqs_out = np.concatenate((self.freqs_inf + freqs[0], freqs, self.freqs_sup + freqs[-1]))
@@ -1045,12 +1102,12 @@ class RF_Abstract_Modelised_Component(RF_Abstract_Base_Component, ABC):
 
         return freqs_out, gains, nf__s, op1ds, iip3s, iip2s
 
-    def process_signals(self, signals: Signals, temp_kelvin: Optional[float] = None) -> None:
+    def process_signals(self, signals: Signals, temp_kelvin: float | None = None) -> None:
         """Process signals by applying frequency-dependent gains, noise, and distortion.
 
         Args:
-            signals (Signals): Input signals object.
-            temp_kelvin (Optional[float]): Temperature in Kelvin, defaults to instance temperature.
+            signals: Input signals object.
+            temp_kelvin: Temperature in Kelvin.
         """
         temp_kelvin = temp_kelvin if temp_kelvin is not None else self.temp_kelvin
 
@@ -1149,6 +1206,7 @@ class RF_Abstract_Modelised_Component(RF_Abstract_Base_Component, ABC):
         # Retrieve temporal signal
         signals.sig2d = np.real(np.fft.ifft( spectrums*len(fftfreqs), axis=1 ))
 
+
 class RF_Modelised_Component(RF_Abstract_Modelised_Component):
     """Class representing a modelised RF component with frequency-dependent characteristics.
 
@@ -1179,21 +1237,20 @@ class RF_Modelised_Component(RF_Abstract_Modelised_Component):
         nfs___inf (np.ndarray): Inferior noise figures for out-of-band (low).
     """
 
-    def __init__(self, freqs: np.ndarray, gains_db: np.ndarray, nfs_db: np.ndarray, phases_rad: Optional[np.ndarray] = None,
-                 op1ds_dbm: Optional[np.ndarray] = None, iip3s_dbm: Optional[np.ndarray] = None, iip2s_dbm: Optional[np.ndarray] = None,
+    def __init__(self, freqs: np.ndarray, gains_db: np.ndarray, nfs_db: np.ndarray, phases_rad: np.ndarray | None = None,
+                 op1ds_dbm: np.ndarray | None = None, iip3s_dbm: np.ndarray | None = None, iip2s_dbm: np.ndarray | None = None,
                  temp_kelvin: float = DEFAULT_TEMP_KELVIN) -> None:
         """Initialize the modelised component with specified characteristics.
 
         Args:
-            freqs (np.ndarray): Frequency points in Hz.
-            gains_db (np.ndarray): Gains in dB at each frequency.
-            nfs_db (np.ndarray): Noise figures in dB at each frequency.
-            phases_rad (Optional[np.ndarray]): Phases in radians, defaults to None.
-            nominal_gain_for_im_db (Optional[float]): Nominal gain for IM in dB, defaults to None.
-            op1db_dbm (float): Output 1dB compression point in dBm, defaults to infinity.
-            oip3_dbm (float): Output IP3 in dBm, defaults to infinity.
-            iip2_dbm (float): Input IP2 in dBm, defaults to infinity.
-            temp_kelvin (float): Temperature in Kelvin, defaults to 298.15 K.
+            freqs: Frequency points in Hz.
+            gains_db: Gains in dB at each frequency.
+            nfs_db: Noise figures in dB at each frequency.
+            phases_rad: Phases in radians.
+            op1ds_dbm: Output 1dB compression point in dBm.
+            iip3s_dbm: Input IP3 in dBm.
+            iip2s_dbm: Input IP2 in dBm.
+            temp_kelvin: Temperature in Kelvin.
         """
         # Initialize attributes belonging to input parameters
         self.temp_kelvin = temp_kelvin
@@ -1209,12 +1266,14 @@ class RF_Modelised_Component(RF_Abstract_Modelised_Component):
                     try:
                         setattr(self, _nm, np.array( [float(eval(_nm))] ))
                         _convert = True
-                    except: pass
+                    except:
+                        pass
                 elif _typ is Iterable:
                     try:
                         setattr(self, _nm, np.array(eval(_nm)))
                         _convert = True
-                    except: pass
+                    except:
+                        pass
                 elif _typ is None:
                     if eval(_nm) is None:
                         setattr(self, _nm, None)
@@ -1234,10 +1293,11 @@ class RF_Modelised_Component(RF_Abstract_Modelised_Component):
             elif _nm in ('op1ds_dbm', 'iip3s_dbm'):
                 setattr(self, _nm, infs_like(self.freqs))
             elif _nm == 'iip2s_dbm':
-                # Il semble probable que, lorsqu'IIP2 ou OIP2 n'est pas fourni et que l'IIP3 est connu, il n'existe pas de valeur standard universelle à estimer, car IIP2 et IIP3 dépendent des caractéristiques spécifiques du composant.
-                # Pour les mélangeurs RF, des recherches suggèrent que l'IIP2 est généralement 20 à 40 dB plus élevé que l'IIP3, avec une estimation moyenne autour de 25 dB.
-                # Pour les amplificateurs RF, la différence entre IIP2 et IIP3 est souvent de 15 à 20 dB.
-                # En pratique, pour la modélisation, on peut supposer que l'IIP2 est environ 25 dB plus élevé que l'IIP3 pour les mélangeurs, mais cela reste une approximation.
+                # It seems likely that when IIP2 or OIP2 is not provided and IIP3 is known, there is no universal 
+                # standard value to estimate, as IIP2 and IIP3 depend on specific component characteristics.
+                # For RF mixers, research suggests that IIP2 is generally 20 to 40 dB higher than IIP3, with an average estimate around 25 dB.
+                # For RF amplifiers, the difference between IIP2 and IIP3 is often 15 to 20 dB.
+                # In practice, for modeling purposes, we can assume that IIP2 is roughly 25 dB higher than IIP3 for mixers, but this remains an approximation.
                 setattr(self, _nm, self.iip3s_dbm + 25)  # Default IIP2 is 25 dB above IIP3
 
         # Initialize complementary attributes based on input parameters
@@ -1250,50 +1310,16 @@ class RF_Modelised_Component(RF_Abstract_Modelised_Component):
         #for var_name in ('self.freqs', 'self.gains', 'self.nf__s', 'self.op1ds', 'self.iip3s', 'self.iip2s'):
             #logger.info( f'<{self.__class__.__name__}> {var_name}, {eval(var_name)}')
 
-    def get_rf_parameters_adapted_to_signals(self, signals: Signals, temp_kelvin: Optional[float] = None) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    def get_rf_parameters_adapted_to_signals(self, signals: Signals, temp_kelvin: float | None = None) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         """Get frequency-dependent gains and noise figures for the signals.
 
         Args:
-            signals (Signals): Input signals object.
-            temp_kelvin (Optional[float]): Temperature in Kelvin, defaults to instance temperature.
+            signals: Input signals object.
+            temp_kelvin: Temperature in Kelvin.
 
         Returns:
-            Tuple[np.ndarray, np.ndarray, np.ndarray]: Frequencies, gains, noise figures.
-
-        Raises:
-            ValueError: If frequency-dependent parameters are not set.
+            Tuple of Frequencies, gains, noise figures, op1ds, iip3s, iip2s.
         """
         parameters = self.extend_rf_parameters(self.freqs, self.gains, self.nf__s, self.op1ds, self.iip3s, self.iip2s)
 
         return parameters
-
-
-# ====================================================================================================
-# Main Execution
-# ====================================================================================================
-def main() -> None:
-    """Main function to demonstrate the usage of the RF modeling classes."""
-    logging.basicConfig(level=logging.INFO, format='%(asctime)s-%(levelname)s-%(module)s-%(funcName)s: %(message)s')
-
-    # Example usage of the classes
-    # Create a signal with noise and tones
-    signal = Signals(20e9, 100e6)  # fmax = 40 GHz, bin_width = 10 MHz (duration = 1/bin_width = 100 ns)
-    signal.add_noise(thermal_noise_power_dbm(signal.temp_kelvin, signal.bandwidth))  # Add thermal noise
-    signal.add_tone(3e9, 0, 0)          # Add tone at 3 GHz, 0 dBm
-    signal.add_tone(11e9, -55, pi / 4)  # Add tone at 11 GHz, -55 dBm
-    signal.add_tone(17e9, -50, -pi / 3) # Add tone at 17 GHz, -50 dBm
-
-    # Print RMS value
-    logger.info( f"Initial RMS value: {signal.rms_dbm()} dBm" )
-
-    # Plot temporal signal
-    signal.plot_temporal(tmax=10e-9)
-
-    # Plot spectrum
-    signal.plot_spectrum()
-
-    plt.show()  # Display all plots
-
-if __name__ == '__main__':
-    main()
-# ====================================================================================================

@@ -89,7 +89,7 @@ scope        = "src, tests"
 
 [[tool.project-requirements.standards.items]]
 id           = "FR-STD-07"
-shall        = "All contributors, automated tools, and LLMs shall preserve and maintain existing vertical alignments for assignment operators (=) and colons (:) in dictionary definitions or parameter lists. Tools like auto-formatters must be configured to respect these visual tabular alignments."
+shall        = "All contributors, automated tools, and LLMs shall preserve and maintain existing vertical alignments for assignment operators (=), colons (:) and hash (#) in dictionary definitions or parameter lists. Tools like auto-formatters must be configured to respect these visual tabular alignments."
 rationale    = "Maintains code readability for RF constants, parameters mapping, and tabular data structures."
 verification = "Code review; visual inspection of diffs. Auto-formatters (e.g., Ruff format) must have alignment-breaking rules disabled where applicable."
 scope        = "src, tests"
@@ -117,3 +117,4 @@ convention = "google"  # FR-STD-02
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+#addopts = "-v -l"

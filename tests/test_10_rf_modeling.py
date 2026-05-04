@@ -75,20 +75,17 @@ def test_complex_multi_tone_signal() -> None:
     signal.add_noise(thermal_noise_power_dbm(signal.temp_kelvin, signal.bandwidth))
 
     # Add tones
-    tones = [(17e9, -10, -pi / 3), (11e9, -5, pi / 4), (3e9, 0, 0)]
+    tones = [(17e9, -10, -pi / 3), (11e9, -5, pi / 4), (3e9, 0, 0), (0, -40, 0), ]
+
     for fr, pow, ph in tones:
         signal.add_tone(fr, pow, ph)
 
     # 2. Verify overall RMS power
-    # The dominant power is from the 0 dBm tone. The -50 and -55 dBm tones 
-    # contribute a negligible amount of power in linear scale.
     assert signal.rms_dbm() == pytest.approx(1.51, abs=0.1)
 
     # 3. Verify the FFT spectrum peaks
     for fr, pow, ph in tones:
-        idx_neg   = signal.get_arg_freq(-fr)
-        idx_pos   = signal.get_arg_freq( fr)
-        power_rms = calculate_spectral_rms_dbm(signal.spectrums[:, (idx_neg, idx_pos)].mean(axis=0), signal.imped_ohms)
+        power_rms = signal.rms_at_freq_dbm(fr)
 
         # Check if the combined power matches the generated tones
         # (Allowing a 1.0 dBm tolerance due to spectral leakage / windowing effects)

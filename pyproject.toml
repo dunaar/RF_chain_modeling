@@ -1,5 +1,5 @@
 [project]
-name = "rf-chain-modeling"
+name = "rf_chain_modeling"  # Modification du tiret (-) en underscore (_) FR-STD-06
 version = "0.1.2.dev1"
 description = "RF Signal Simulation and Analysis Framework"
 readme = "README.md"
@@ -94,11 +94,16 @@ rationale    = "Maintains code readability for RF constants, parameters mapping,
 verification = "Code review; visual inspection of diffs. Auto-formatters (e.g., Ruff format) must have alignment-breaking rules disabled where applicable."
 scope        = "src, tests"
 
+# ── Setuptools configuration ──────────────────────────────────────────────────
+
 [tool.setuptools.packages.find]
 where = ["src"]
+namespaces = false
 
 [tool.setuptools.package-data]
-"*" = ["*.tsv", "*.csv"]
+"rf_chain_modeling.rf_components.data" = ["*.tsv"]
+
+# ── Tool configurations ───────────────────────────────────────────────────────
 
 [tool.ruff]
 line-length = 150

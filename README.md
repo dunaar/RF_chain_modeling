@@ -9,7 +9,7 @@
 
 **RF Signal Simulation and Analysis Framework**
 
-`RF_chain_modeling` is a Python framework designed to model, simulate, and analyze Radio Frequency (RF) chains. It allows you to cascade various RF components—such as amplifiers, filters, cables, and antennas—to predict system performance metrics like Gain, Noise Figure (NF), and non-linearities (**OP1dB**, **IP3**, **IP2**).
+`rf_chain_modeling` is a Python framework designed to model, simulate, and analyze Radio Frequency (RF) chains. It allows you to cascade various RF components—such as amplifiers, filters, cables, and antennas—to predict system performance metrics like Gain, Noise Figure (NF), and non-linearities (**OP1dB**, **IP3**, **IP2**).
 
 ## Key Features
 
@@ -30,46 +30,45 @@ cd RF_chain_modeling
 ```
 
 ### 2. Install the package
-The project uses `pyproject.toml` for dependency management. You can install it using standard `pip` or modern environment managers like `uv`.
+The project uses `pyproject.toml` for dependency management. You can install it using modern environment managers like `uv` (recommended) or standard `pip`.
+
+**Using uv (Recommended):**
+```bash
+# 1. Create a virtual environment
+uv venv
+source .venv/bin/activate  # On Linux/macOS
+# .venv\Scripts\activate   # On Windows
+
+# 2. Sync the project and install the package with dev dependencies
+uv sync --extra dev
+```
 
 **Using standard pip:**
 ```bash
 # Install the package in editable mode
 pip install -e .
 
-# If you want to contribute or run tests, install the dev dependencies (pytest, ruff):
+# If you want to contribute or run tests, install the dev dependencies:
 pip install -e ".[dev]"
-```
-
-**Using uv (Recommended):**
-```bash
-# Create a virtual environment
-uv venv
-source .venv/bin/activate  # On Linux/macOS
-# .venv\Scripts\activate   # On Windows
-
-# Install the package in editable mode with dev dependencies
-uv pip install -e ".[dev]"
 ```
 
 Required libraries automatically installed: `numpy`, `scipy`, `matplotlib`, `tqdm`.
 
 ## 📖 Usage Examples
 
-### 1. Modeling a Full RF Chain
-Depending on your environment setup, you can run these examples using the standard Python interpreter or through a modern environment runner like `uv`. 
-
 ### 1. Running the Main Entry Point
-The project includes a `main.py` file at the root that serves as a global entry point to trigger the primary chain example.
+The project serves a primary chain example which can be executed directly via the package's main entry point. 
 
-**Standard execution:**
+**Standard execution (module mode via `__main__.py`):**
 ```bash
-python3 main.py
+python3 -m rf_chain_modeling
 ```
 **Using uv:**
 ```bash
-uv run python main.py
+uv run python -m rf_chain_modeling
 ```
+
+*(Alternatively, you can run the `main.py` script located at the repository root: `uv run python main.py`)*
 
 ---
 
@@ -100,27 +99,61 @@ uv run python -m rf_chain_modeling.examples.rf_chain_example
 
 ---
 
-### 3. Modeling a Specific Component from Data
-The script `rf_components/zvq_183_s_plus.py` shows how to model a specific commercial component (Mini-Circuits ZVQ-183+ amplifier) using measured data stored in a TSV file.
+### 3. Modeling the RF Core Classes
+The script `rf_modeling_example.py` demonstrates the core signal modeling features independently from a full RF chain.
 
 **Standard execution (module mode):**
 ```bash
-python3 -m rf_chain_modeling.rf_components.zvq183splus
+python3 -m rf_chain_modeling.examples.rf_modeling_example
 ```
 **Using uv:**
 ```bash
-uv run python -m rf_chain_modeling.rf_components.zvq183splus
+uv run python -m rf_chain_modeling.examples.rf_modeling_example
 ```
 
 **What it does:**
-*   **Data Import:** Reads `zvq_183_s_plus.tsv` using the `CSVDataTable` utility to parse Frequency, Gain, Phase, NF, and OIP3 data.
+*   Creates a signal over a wide RF bandwidth.
+*   Adds thermal noise and several tones with different amplitudes and phases.
+*   Computes RMS-related quantities in time and frequency domains.
+*   Plots temporal and spectral representations of the signal.
+
+---
+
+### 4. Modeling a Reusable RF Subchain
+The script `rf_subchain_example.py` provides an additional example entry point for reusable RF subchain workflows.
+
+**Standard execution (module mode):**
+```bash
+python3 -m rf_chain_modeling.examples.rf_subchain_example
+```
+**Using uv:**
+```bash
+uv run python -m rf_chain_modeling.examples.rf_subchain_example
+```
+
+---
+
+### 5. Modeling a Specific Component from Data
+The script `rf_components/zvq_183_s_plus.py` shows how to model a specific commercial component (Mini-Circuits ZVQ-183-S+ amplifier) using measured data packaged within the module.
+
+**Standard execution (module mode):**
+```bash
+python3 -m rf_chain_modeling.rf_components.zvq_183_s_plus
+```
+**Using uv:**
+```bash
+uv run python -m rf_chain_modeling.rf_components.zvq_183_s_plus
+```
+
+**What it does:**
+*   **Data Import:** Reads `zvq_183_s_plus.tsv` securely via `importlib.resources`.
 *   **Component Creation:** Instantiates an `RF_Modelised_Component` using the real-world data points.
 *   **Characterization:**
     *   Interpolates performance metrics across the frequency band (10 MHz - 20 GHz).
     *   Calculates and plots **Gain**, **Phase**, and **Noise Figure** vs. Frequency.
     *   Assesses linearity (P1dB, IP3) at specific test frequencies.
 
-### 4. Running the Tests
+### 6. Running the Tests
 The project includes a comprehensive test suite (unit tests and end-to-end integration tests) located in the `tests/` directory.
 
 If you installed the package with the `[dev]` dependencies, you can run the test suite using `pytest`:
@@ -129,11 +162,13 @@ If you installed the package with the `[dev]` dependencies, you can run the test
 ```bash
 pytest
 # Or to see verbose output:
-pytest -v
+pytest -vl
 ```
 **Using uv:**
 ```bash
 uv run pytest
+# Or to see verbose output:
+uv run pytest -vl
 ```
 
 ## 📂 Project Structure
@@ -142,10 +177,14 @@ The package source code is located under the `src/rf_chain_modeling/` directory:
 
 *   `examples/`: Demonstration scripts showing how to use the framework (e.g., complete RF chain, specific components).
 *   `rf_utils/`: Core utilities for signal processing (`Signals` class), abstract base component classes, and CSV data handling.
-*   `rf_components/`: Definitions for specific or generic RF components (e.g., amplifiers, cables, filters).
+*   `rf_components/`: Definitions for specific or generic RF components (e.g., amplifiers, cables, filters), including packaged `.tsv` data.
 *   `rf_chains/`: Definitions and simulations of complete cascaded RF chains.
 *   `rf_subchains/`: Reusable sub-blocks of RF components.
 
+The test suite is located under `tests/` and currently includes:
+*   `test_10_rf_modeling.py`
+*   `test_20_components.py`
+*   `rf_components/test_21_zvq_183_s_plus.py`
 
 ## 📝 License
 
@@ -153,13 +192,11 @@ This project is licensed under the **MIT License**. See the `LICENSE` file for d
 
 **Author:** Pessel Arnaud
 
-
 ## 📚 Citing
 
 If you use this software in your research, please cite it using the following DOI (as defined in the `CITATION.cff` release):
 
-> Pessel, A. (2026). RF_chain_modeling (v0.1.1-beta). Zenodo. [https://doi.org/10.5281/zenodo.18145792](https://doi.org/10.5281/zenodo.18145792)
-
+> Pessel, A. (2026). rf_chain_modeling (v0.1.2.dev1). Zenodo. https://doi.org/10.5281/zenodo.18145792
 
 ## 🤝 Contributing
 

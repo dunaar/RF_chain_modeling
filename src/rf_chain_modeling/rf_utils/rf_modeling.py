@@ -22,10 +22,10 @@ import copy
 import logging
 from abc import ABC, abstractmethod
 from collections.abc import Iterable
+from math import pi
 
 import matplotlib.pyplot as plt
 import numpy as np
-from numpy import pi
 from tqdm import tqdm
 
 from .util_search_mediane import search_mediane_for_slope
@@ -496,8 +496,14 @@ class Signals:
             Generated signal array.
         """
         amp_rms = dbm_to_voltage(power_dbm, imped_ohms)  # RMS amplitude
-        amp_pk = np.sqrt(2) * amp_rms  # Peak amplitude from RMS (for sine wave)
-        return amp_pk * np.sin(2 * pi * freq * time + phase)  # Generate sine wave
+        if freq == 0:
+            signal = np.full_like(time, amp_rms)  # DC signal with constant amplitude
+        else:
+            signal  = np.sin(2 * pi * freq * time + phase)     # Sine wave with given frequency and phase
+            factor  = amp_rms / np.sqrt(np.mean(signal ** 2))  # Scaling factor to achieve desired RMS
+            signal *= factor
+
+        return signal
 
     @staticmethod
     def generate_noise_dbm( shape: int | tuple[int, ...], power_dbm: float, imped_ohms: float = DEFAULT_IMPED_OHMS) -> np.ndarray:
@@ -625,6 +631,47 @@ class Signals:
             RMS power in dBm.
         """
         return voltage_to_dbm(np.sqrt(np.mean(np.abs(self.sig2d) ** 2)), self.imped_ohms)
+
+    def rms_at_freq(self, freq: float) -> float:
+        """Calculate the exact signal RMS voltage at a given frequency.
+
+        This uses time-domain convolution (Single-point DTFT / Heterodyning) to avoid 
+        spectral leakage issues and FFT grid constraints by correlating the signal 
+        directly with a complex phasor at the exact frequency.
+
+        Args:
+            freq (float): The frequency to analyze in Hz.
+
+        Returns:
+            float: The exact RMS voltage at that frequency.
+        """
+        phasor      = np.exp(-1j * 2 * pi * freq * self.time)
+
+        #window      = np.hanning(self.n_points)
+        #complex_amp = np.mean(self.sig2d * phasor * window) / np.mean(window)
+
+        complex_amp = np.mean(self.sig2d * phasor)
+
+        if freq < self.bin_width:
+            phasor         = np.exp(-1j * 2 * pi * (-freq) * self.time)
+            complex_amp   += np.conj(np.mean(self.sig2d * phasor))  # Add negative frequency component for real signals
+            rms_per_window = np.abs(complex_amp)/2
+        else:
+            rms_per_window = np.sqrt(2) * np.abs(complex_amp)
+
+        return float(np.sqrt(np.mean(rms_per_window**2)))
+
+    def rms_at_freq_dbm(self, freq: float) -> float:
+        """Calculate the exact signal RMS power in dBm at a given frequency.
+
+        Args:
+            freq (float): The frequency to analyze in Hz.
+
+        Returns:
+            float: The total power in dBm at that frequency.
+        """
+        rms_voltage = self.rms_at_freq(freq)
+        return float(voltage_to_dbm(rms_voltage, self.imped_ohms))
 
     def plot_temporal(self, tmin: float | None = None, tmax: float | None = None, title: str = "Temporal Signal", ylabel: str = "Amplitude") -> None:
         """Plot the temporal representation of the signals.
